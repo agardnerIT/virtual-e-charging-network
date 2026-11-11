@@ -143,6 +143,23 @@ bay_delivering() {
 }
 queues_drained() { [ "$(queues_empty)" = "0" ]; }
 
+# stored_samples <metric> <window_seconds> <at_epoch>: how many samples of a series the *store* holds
+# in a window ending at a given time. The only way to ask "what did the store keep" — as opposed to
+# "did the pipeline deliver", which is what the edge counters answer (finding #60).
+stored_samples() {
+  local metric="$1" window="$2" at="$3" enc
+  enc=$(Q="sum(count_over_time($metric[$window""s] @ $at))" \
+    python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["Q"]))')
+  $COMPOSE exec -T ops wget -qO- "http://prometheus:9090/api/v1/query?query=$enc" 2>/dev/null \
+    | python3 -c '
+import json, sys
+try:
+    d = json.load(sys.stdin)["data"]["result"]
+except Exception:
+    print(0); raise SystemExit
+print(int(float(d[0]["value"][1])) if d else 0)'
+}
+
 # island_stepped: the island's load has risen above the pre-step value (the poller reports every 5 s
 # with a deadband, so a fixed sleep is a race — the lesson from the first run of this script).
 island_stepped() {
@@ -283,6 +300,33 @@ else
   lost_after=$(qsum 'otelcol_exporter_enqueue_failed_metric_points{instance=~".*edge-wind.*"}')
   require "points lost (enqueue failed) during the outage" \
     "$(python3 -c "print(max(0, int(float('${lost_after:-0}') - float('${lost_before:-0}'))))")" eq "0"
+
+  # --- and what the STORE kept, which is a different question -----------------------------
+  # The edge counters above say the pipeline lost nothing. Whether the store *kept* the replay
+  # depends on a race between the replayed batches and the first fresh sample of each series, so it
+  # has to be measured per series rather than asserted once (finding #60). A short outage usually
+  # lands inside the store's acceptance window; a long one does not, and then this step prints the
+  # loss and names the mechanism instead of pretending the pipeline's success is the whole story.
+  # The comparison is against a *control* window of the same length before the outage, not against
+  # "one sample per 5 s": a deadbanded series emits only when it moves, so a fixed denominator
+  # would slander a perfectly healthy series (measured: 54 % by that method, which was the method's
+  # fault, not the store's).
+  note "what the store kept, in the outage window vs an equal window before it:"
+  AT=$(date +%s)
+  WIN=$(( OUTAGE_WAIT + 120 ))
+  CONTROL_AT=$(( AT - WIN - OUTAGE_WAIT - 120 ))
+  for metric in energy_windfarm_frequency_hertz energy_windfarm_power_real_watts; do
+    during=$(stored_samples "$metric" "$WIN" "$AT")
+    before=$(stored_samples "$metric" "$WIN" "$CONTROL_AT")
+    pct=$(python3 -c "b=$before; d=$during; print(100 if not b else min(100, round(100.0*d/b)))")
+    note "  $metric: $during samples during the outage vs $before in the control window ($pct %)"
+    if [ "$pct" -lt 90 ]; then
+      note "  ^ the store dropped part of the replay: out-of-order samples are rejected while the"
+      note "    hub still answers 200 (finding #60). Not a pipeline failure — a store window, and"
+      note "    the ratio is series-dependent because the race is per series."
+    fi
+  done
+
 fi
 
 # ---------------------------------------------------------------------------------------------
