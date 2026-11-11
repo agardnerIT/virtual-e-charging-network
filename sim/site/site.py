@@ -33,6 +33,7 @@ from pymodbus.server import StartAsyncTcpServer
 from pymodbus.simulator import DataType, SimData, SimDevice
 
 import sunspec
+from clock import ClockState
 
 LOG = logging.getLogger("site")
 
@@ -131,6 +132,9 @@ class MeterModel:
         self.regmap = regmap
         self.fault = fault
         self.nominal_voltage = nominal_voltage
+        # The clock is mutable at runtime (M3-4): a device whose clock drifts or is set by
+        # hand does not restart. See sim/site/clock.py.
+        self.clock = ClockState(initial_skew_s=skew_s)
         self.skew_s = skew_s
         self.word_order = word_order
         self._t0 = time.monotonic()
@@ -214,15 +218,15 @@ class MeterModel:
 
     def device_time(self) -> int:
         """The device's own claimed clock. Sites like this have no reliable NTP, so it is
-        deliberately skewed (D12, plan.md 5.5)."""
-        return int(time.time() + self.skew_s)
+        deliberately skewed (D12, plan.md 5.5) - and it can be pushed out at runtime."""
+        return self.clock.now()
 
     def image(self) -> list[int]:
         return self.regmap.encode(
             self.sample(),
             device_time=self.device_time(),
             word_order=self.word_order,
-            clock_offset_s=int(self.skew_s),
+            clock_offset_s=int(self.clock.snapshot()["clock_skew_s"]),
         )
 
     def health(self) -> dict:
@@ -231,7 +235,7 @@ class MeterModel:
             "device_id": self.device_id,
             "device_kind": "meter",
             "uptime_s": self.uptime_s(),
-            "device_clock_skew_s": self.skew_s,
+            "device_clock_skew_s": self.clock.snapshot()["clock_skew_s"],
             "register_count": self.regmap.total_regs,
             "fault": self.fault.snapshot(),
         }
@@ -273,6 +277,8 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send(200, model.curtail.snapshot())
         elif self.path == "/load" and hasattr(model, "loadstep"):
             self._send(200, model.loadstep.snapshot())
+        elif self.path == "/clock" and hasattr(model, "clock"):
+            self._send(200, model.clock.snapshot())
         else:
             self._send(404, {"error": "not found"})
 
@@ -295,6 +301,12 @@ class _ControlHandler(BaseHTTPRequestHandler):
             )
             LOG.warning("EXPORT LIMIT set to %.1f%% of nameplate", state["export_limit_pct"])
             self._send(202, {"accepted": True, "curtail": state})
+        elif path == "/clock/skew" and hasattr(model, "clock"):
+            state = model.clock.set_skew(float(body.get("seconds", 0.0)))
+            LOG.warning("DEVICE CLOCK SET to %+.0fs (%s): the device now claims %s",
+                        state["clock_skew_s"], state["device_time_note"],
+                        time.strftime("%H:%M:%S", time.gmtime(state["device_time"])))
+            self._send(202, {"accepted": True, "clock": state})
         elif path == "/load/step" and hasattr(model, "loadstep"):
             # Not a fault (D29 keeps exactly one of those): an EV block closing its
             # contactors, which is what an islanded grid actually has to survive.
@@ -320,6 +332,9 @@ class _ControlHandler(BaseHTTPRequestHandler):
         elif path == "/load/step" and hasattr(model, "loadstep"):
             model.loadstep.clear()
             self._send(200, {"cleared": True})
+        elif path == "/clock/skew" and hasattr(model, "clock"):
+            state = model.clock.clear()
+            self._send(200, {"cleared": True, "clock": state})
         else:
             self._send(404, {"error": "not found"})
 

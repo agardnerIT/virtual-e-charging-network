@@ -276,6 +276,71 @@ Two things worth noticing as an observability person:
 
 ---
 
+### 5.1 The clock problem, with a worked example
+
+Every other point in the list above can be argued about. This one cannot: **a sequence-of-events list
+sorted by device time is wrong**, and the only question is how wrong.
+
+Two clocks produce every timestamp in this repo:
+
+- the **device clock** — the meter's own `UnixTime` register. No NTP at a remote site, so it drifts,
+  or somebody sets it by hand. It is the only clock that was present when the electrons moved.
+- the **receive clock** — when the collector saw the value. This one is on the same host as everything
+  else, is monotonic in practice, and is what a store should sort by.
+
+The rural site's meter is deliberately 7 s behind and the island's is 11 s behind, which is enough to
+make the difference visible. It is not enough to break anything, so there is a runtime control:
+
+```bash
+make clock-skew SITE=rural SECONDS=240     # the meter now claims it is 4 minutes in the future
+./tools/clock-inversion.sh                 # the whole demonstration, in one command
+make clock-reset SITE=rural
+```
+
+`tools/clock-inversion.sh` pushes the clock, runs the one fault this repo has (a voltage sag that ends
+a session for `PowerLoss`), and prints the *same* two events in both orderings:
+
+```
+ORDERED BY RECEIVE TIME
+  14:22:41.485  sag begins (the cause)
+  14:22:44.492  session ends for PowerLoss (the effect)   +3.0 s later
+
+ORDERED BY DEVICE TIME
+  14:22:44.492  session ends for PowerLoss (the effect)
+  14:26:41.000  sag begins (the cause)                     +236.5 s
+```
+
+The cause arrives **four minutes after its effect**. Nothing was rewritten to make that happen: the
+sag's timestamp comes from the meter that measured it, the stop's comes from the charge point that
+decided it, and the two clocks disagree. That is not a bug in the pipeline — it is two facts from two
+clocks, and it is what any OT estate looks like.
+
+**What a backend should do, and this repo does:**
+
+1. **Order by receive time.** It is the only clock that is comparable across sources. In this stack
+   that is free: Prometheus stores a metric sample at the time the hub received it, and a span's start
+   time is its producer's clock read at emit time.
+2. **Keep device time as provenance, never as the sort key.** `energy.device.timestamp` rides the data
+   point and `energy.supply.device.timestamp` rides the trace (D12, D23). Reading it back tells you
+   what the device believed; sorting by it reorders the world.
+3. **Never rewrite it.** A corrected timestamp is a lost fact, and the correction is not reproducible
+   after the device is fixed or replaced. If you need a corrected view, compute it *as a query*, with
+   the raw value still underneath.
+4. **Do not treat a skewed clock as `comms-lost`.** The quality vocabulary has four words and they mean
+   different things (D21): `comms-lost` is "I cannot read the device"; `stale` is "the device's own
+   clock says this reading is old"; `bad` is "the device says this point has no value"; `good` is
+   everything else. A meter 5 minutes **behind** therefore makes every point report `stale` while the
+   link is perfect and the values are seconds old — measured: 28 series carrying `stale` while
+   `make queues` stayed at 0, and the charge point went on charging at 0.99 pu. A meter 4 minutes
+   **ahead** reports `good` on everything and puts the timestamps in the future, which is the dangerous
+   direction because nothing complains.
+
+If you are building an alarm on top of this, the rule from finding #46 generalises: **"no recent
+samples" is a delivery question, `quality` is a device question, and neither of them is a time
+question.** They are three different failures that the same word — "stale" — gets used for.
+
+---
+
 ## 6. What an electrical engineer expects to see on screen
 
 If the HMI doesn't look like this, domain readers will discount everything else:

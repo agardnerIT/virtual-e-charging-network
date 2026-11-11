@@ -8,6 +8,7 @@
 #   make fault     inject the voltage sag:  make fault SITE=rural FAULT=voltage-sag
 #   make curtail   hold generation export down:  make curtail SITE=solar PCT=60
 #   make step      microgrid only - switch a block of EV load on:  make step KW=300
+#   make clock-skew  push a device's own clock out:  make clock-skew SITE=rural SECONDS=240
 #   make link      degrade a site's link:   make link SITE=wind PROFILE=down
 #   make clean     stop and delete everything, including buffered telemetry
 #
@@ -34,7 +35,7 @@ JAEGER_PORT ?= 16687
 SOLAR_CLOCK_HOUR ?=
 
 .PHONY: up down ps logs stats queues link fault fault-status profiles clean queue-detail \
-	device-logs poller-logs visual prom hmi curtail step microgrid-status \
+	device-logs poller-logs visual prom hmi curtail step microgrid-status clock-skew clock-reset \
 	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
 up:
@@ -110,6 +111,27 @@ fault-status:
 PCT ?= 60
 curtail:
 	@$(COMPOSE) exec -T device-$(SITE) python site/faultctl.py curtail --pct $(PCT)
+
+# ---------------------------------------------------------------------------------
+# M3-4: clock skew. A device clock that is minutes out does not restart - it drifts, or
+# somebody sets it by hand - so this is a runtime control on the device, not an env var.
+#   make clock-skew SITE=rural SECONDS=240     # device claims it is 4 minutes in the future
+#   make clock-skew SITE=rural SECONDS=-300    # ... or 5 minutes behind (every point goes
+#                                              # quality=stale while the link is perfectly fine)
+#   make clock-reset SITE=rural                # back to the site's configured skew
+# The demonstration lives in tools/clock-inversion.sh; the write-up is
+# docs/findings.md #51-53 and docs/ot-primer.md.
+# ---------------------------------------------------------------------------------
+# `SECONDS` is what the comment above documents; SKEW is the fallback for anyone who would
+# rather not shadow a bash special variable. Both work.
+SKEW ?= 240
+
+clock-skew:
+	@$(COMPOSE) exec -T device-$(SITE) python site/faultctl.py clock-skew \
+	  --seconds $(or $(SECONDS),$(SKEW))
+
+clock-reset:
+	@$(COMPOSE) exec -T device-$(SITE) python site/faultctl.py clock-reset
 
 # ---------------------------------------------------------------------------------
 # M3-2: the isolated microgrid. Its event is a load step, not a fault: a block of EV chargers

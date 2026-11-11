@@ -40,6 +40,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 import sunspec
+from clock import ClockState
 
 LOG = None  # set by the entry point; this module stays importable without logging configured
 
@@ -133,6 +134,7 @@ class InverterModel:
         self.export_limit_kw = export_limit_kw
         self.nominal_voltage = nominal_voltage
         self.skew_s = skew_s
+        self.clock = ClockState(initial_skew_s=skew_s)
         self.word_order = word_order
         self.curtail = CurtailState()
         self._t0 = time.monotonic()
@@ -305,14 +307,14 @@ class InverterModel:
         return round(time.monotonic() - self._t0, 1)
 
     def device_time(self) -> int:
-        return int(time.time() + self.skew_s)
+        return self.clock.now()
 
     def image(self) -> list[int]:
         return self.regmap.encode(
             self.sample(),
             device_time=self.device_time(),
             word_order=self.word_order,
-            clock_offset_s=int(self.skew_s),
+            clock_offset_s=int(self.clock.snapshot()["clock_skew_s"]),
         )
 
     def health(self) -> dict:
@@ -321,7 +323,7 @@ class InverterModel:
             "device_id": self.device_id,
             "device_kind": "inverter",
             "uptime_s": self.uptime_s(),
-            "device_clock_skew_s": self.skew_s,
+            "device_clock_skew_s": self.clock.snapshot()["clock_skew_s"],
             "register_count": self.regmap.total_regs,
             "ac_rating_kw": self.ac_kw,
             "dc_rating_kwp": self.dc_kwp,

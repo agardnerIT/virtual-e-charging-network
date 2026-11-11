@@ -32,6 +32,7 @@ from collections import deque
 from dataclasses import dataclass
 
 import sunspec
+from clock import ClockState
 from inverter import CurtailState  # the same export-limit control, shared
 
 # Turbine operating states. A vendor enum: SunSpec has no shipped turbine model, so this is
@@ -76,6 +77,7 @@ class WindFarmModel:
         self.export_limit_kw = export_limit_kw
         self.nominal_voltage = nominal_voltage
         self.skew_s = skew_s
+        self.clock = ClockState(initial_skew_s=skew_s)
         self.word_order = word_order
         self.curtail = CurtailState()
         self._t0 = time.monotonic()
@@ -221,14 +223,14 @@ class WindFarmModel:
         return round(time.monotonic() - self._t0, 1)
 
     def device_time(self) -> int:
-        return int(time.time() + self.skew_s)
+        return self.clock.now()
 
     def image(self) -> list[int]:
         return self.regmap.encode(
             self.sample(),
             device_time=self.device_time(),
             word_order=self.word_order,
-            clock_offset_s=int(self.skew_s),
+            clock_offset_s=int(self.clock.snapshot()["clock_skew_s"]),
         )
 
     def health(self) -> dict:
@@ -237,7 +239,7 @@ class WindFarmModel:
             "device_id": self.device_id,
             "device_kind": "windfarm",
             "uptime_s": self.uptime_s(),
-            "device_clock_skew_s": self.skew_s,
+            "device_clock_skew_s": self.clock.snapshot()["clock_skew_s"],
             "register_count": self.regmap.total_regs,
             "turbines": self.turbine_count,
             "rated_kw_each": self.rated_kw_each,

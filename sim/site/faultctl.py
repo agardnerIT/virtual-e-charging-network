@@ -6,6 +6,7 @@ the OT zone stays unreachable from the host and nothing new is published:
     python faultctl.py voltage-sag
     python faultctl.py voltage-sag --depth 0.6 --duration 30
     python faultctl.py loadstep --kw 300 --duration 60     # microgrid only
+    python faultctl.py clock-skew --seconds 240           # push the device clock out (M3-4)
     python faultctl.py clear
     python faultctl.py status
 """
@@ -60,6 +61,11 @@ def main(argv: list[str] | None = None) -> int:
                       help="seconds (default: until cleared)")
     sub.add_parser("loadstep-clear", help="remove the load step")
 
+    clk = sub.add_parser("clock-skew",
+                         help="push the device's own clock out by N seconds (negative = behind)")
+    clk.add_argument("--seconds", type=float, default=240.0)
+    sub.add_parser("clock-reset", help="return the device clock to its configured skew")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "voltage-sag":
@@ -71,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
             out = _request("POST", "/load/step", {"kw": args.kw, "duration_s": args.duration})
         elif args.command == "loadstep-clear":
             out = _request("DELETE", "/load/step")
+        elif args.command == "clock-skew":
+            out = _request("POST", "/clock/skew", {"seconds": args.seconds})
+        elif args.command == "clock-reset":
+            out = _request("DELETE", "/clock/skew")
         elif args.command == "uncurtail":
             out = _request("DELETE", "/curtail")
         elif args.command == "clear":

@@ -137,6 +137,10 @@ class Supply:
     def snapshot(self) -> tuple[tuple[float, float, float], str, float]:
         return self.voltage_v, self.quality, self.updated_at
 
+    def snapshot_full(self) -> tuple[tuple[float, float, float], str, int | None, float]:
+        """Voltages, quality, the supply meter's own clock reading, and the measured skew."""
+        return self.voltage_v, self.quality, self.device_time, float(self.clock_skew_s or 0.0)
+
 
 class SupplyMonitor:
     """Polls `device-rural`'s SunSpec meter for phase voltage.
@@ -183,6 +187,12 @@ class SupplyMonitor:
                     phases.append(float(point.value) if point and point.value is not None
                                   else V_NOMINAL)
                 self.supply.voltage_v = (phases[0], phases[1], phases[2])
+                clock = decoded.get("UnixTime")
+                if clock is not None and clock.raw is not None:
+                    self.supply.device_time = int(clock.raw)
+                    # Measured, not assumed: the charge point compares the meter's clock with
+                    # its own at the same instant it reads the voltage.
+                    self.supply.clock_skew_s = int(clock.raw) - time.time()
                 self.supply.quality = "good"
                 self.supply.updated_at = time.time()
                 self.supply.reads += 1
@@ -329,6 +339,13 @@ class EvseSample:
     session_kwh: float = 0.0
     voltages: tuple[float, float, float] = (V_NOMINAL, V_NOMINAL, V_NOMINAL)
     supply_quality: str = "comms-lost"
+    #: The supply meter's own clock reading (its UnixTime vendor register), and the skew the
+    #: charge point measures against its own clock. The charge point is the one process that
+    #: can see both clocks at once, which is what makes M3-4 observable: it stamps the sag
+    #: span with the meter's claim, so one trace carries "when the grid says it happened"
+    #: next to "when I saw it happen".
+    device_time: int | None = None
+    clock_skew_s: float | None = None
     transaction_id: int | None = None
     session_id: str | None = None
     context: Any = None
@@ -672,14 +689,23 @@ class ChargePoint:
                     # depth, a derate response and an end. Starting it before the drop means
                     # the exemplar captured during the drop points at it (M2-7).
                     if pu < DERATE_FULL_PU and sag_span is None:
+                        sag_attrs = {
+                            "energy.evse.id": evse.evse_id,
+                            "energy.voltage.nominal": V_NOMINAL,
+                            "energy.voltage.pu": round(pu, 3),
+                            "ocpp.transaction.id": tx_id,
+                        }
+                        # M3-4: the cause's own clock reading, carried on the effect. The
+                        # span's start time is the charge point's clock (correct); this
+                        # attribute is what the *meter* claims. Sort by the attribute and the
+                        # derate appears to happen before the sag that caused it.
+                        _, _, dev_time, skew = self.monitor.supply.snapshot_full()
+                        if dev_time is not None:
+                            sag_attrs["energy.supply.device.timestamp"] = dev_time
+                            sag_attrs["energy.supply.clock_skew_s"] = round(skew, 1)
                         sag_span = self.tracer.start_span(
                             "energy.voltage_sag", kind=SpanKind.INTERNAL,
-                            attributes={
-                                "energy.evse.id": evse.evse_id,
-                                "energy.voltage.nominal": V_NOMINAL,
-                                "energy.voltage.pu": round(pu, 3),
-                                "ocpp.transaction.id": tx_id,
-                            })
+                            attributes=sag_attrs)
                         sag_span.add_event("sag.start", {
                             "energy.voltage.l1": round(voltages[0], 1),
                             "energy.voltage.l2": round(voltages[1], 1),
@@ -735,6 +761,12 @@ class ChargePoint:
                     await asyncio.sleep(1.0)
 
                 # ---- StopTransaction --------------------------------------------
+                # M3-4: deliberately NOT the meter's clock. Provenance belongs to whatever
+                # measured the thing: the sag was measured by the supply meter, so the sag span
+                # carries the meter's claim; the stop was decided by this charge point, so the
+                # stop span carries the charge point's own clock and nothing else. Copying the
+                # meter's clock onto the stop as well would make the two orderings agree and
+                # hide the problem this issue is about.
                 with self._span("ocpp.stop_transaction", "StopTransaction",
                                 **{"ocpp.transaction.id": tx_id,
                                    "ocpp.stop.reason": stop_reason}) as stop:

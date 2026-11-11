@@ -252,3 +252,24 @@ code or config.
     second is unstable by a factor of six. Fixed by running the device's own control loop at 20 Hz
     internally, which is also what real equipment does. If a modelled quantity has a time constant
     shorter than the poll interval, the model must not be stepped at the poll interval.
+
+51. **A constant clock offset cannot invert anything; two clocks can.** The first version of the
+    clock-skew demo copied the supply meter's clock onto *both* the sag span and the stop span, and
+    the two orderings came out identical — the offset cancels. The inversion only appears when each
+    timestamp is attributed to the thing that measured it: the sag comes from the meter (its clock,
+    measured 239.8 s out), the stop comes from the charge point (its own clock). That is also what a
+    real estate looks like: metric timestamps from devices, span timestamps from software. Written up
+    in `docs/ot-primer.md` §5.1 with the measured output; the demo is `tools/clock-inversion.sh`.
+
+52. **A meter clock 5 minutes *behind* turns every point `stale` while the link is perfect.**
+    `poller.py` derives quality from the device's own clock (`STALE_AFTER_S = 30`), so a healthy device
+    with a wrong clock reports `stale` on everything: measured 28 rural series carrying `stale`, the edge
+    queue stayed at 0, and the charge point kept charging at 0.99 pu. It is *not* `comms-lost`, and the
+    four words are not synonyms (D21). The opposite direction is worse: a clock *ahead* reports `good`
+    on everything and puts the timestamps in the future, so nothing complains at all.
+
+53. **`cmd | python3 - <<'PY'` does not feed the pipe to stdin.** The heredoc wins, `sys.stdin` is
+    already at EOF, and `json.load` fails with "Expecting value: line 1 column 1 (char 0)" — which
+    looks exactly like an empty API response. Write the payload to a `mktemp` file and pass the path
+    as `argv[1]`. Also: Jaeger's `/api/traces` reports `startTime` in **microseconds**; dividing twice
+    prints a timestamp nineteen days in the future, which is how this one was caught.
