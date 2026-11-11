@@ -49,7 +49,7 @@ esac
 # Every edge that is actually running. Detected, not hard-coded, so this works on the
 # four-site stack and on the five-site one without editing the script.
 SITES=""
-for s in rural solar wind metro microgrid; do
+for s in rural solar wind metro microgrid highway; do
   if docker ps --format '{{.Names}}' | grep -qx "otel-ot-edge-$s-1"; then SITES="$SITES $s"; fi
 done
 SITES="${SITES# }"
@@ -153,7 +153,17 @@ log "drained: queue at 0 after $(( (T2_EPOCH - T1_EPOCH) / 60 )) min"
 # Prometheus is not the pipeline, but it is what a reader will query, and an OTLP receiver
 # with an explicit (old) timestamp is a different question from "did the point cross the
 # link". Record the answer for one wind/wind-like series rather than asserting it.
-PROM_QUERY="${PROM_QUERY:-sum(count_over_time(${PROM_METRIC:-energy_windfarm_power_real_watts}[$(( (T2_EPOCH - T0_EPOCH) / 60 + 10 ))m]))}"
+# One series of the site under test, so the "what the store kept" line means something whichever
+# site is being measured. (The default used to be the wind farm's, which quietly made the line
+# meaningless for the other five.)
+case "$SITE" in
+  wind)      PROM_DEFAULT=energy_windfarm_power_real_watts ;;
+  solar)     PROM_DEFAULT=energy_inverter_power_real_watts ;;
+  metro|highway|rural) PROM_DEFAULT=energy_meter_power_real_watts ;;
+  microgrid) PROM_DEFAULT=energy_microgrid_frequency_hertz ;;
+  *)         PROM_DEFAULT=energy_meter_power_real_watts ;;
+esac
+PROM_QUERY="${PROM_QUERY:-sum(count_over_time(${PROM_METRIC:-$PROM_DEFAULT}[$(( (T2_EPOCH - T0_EPOCH) / 60 + 10 ))m]))}"
 prom_samples() {
   local enc
   enc=$(Q="$PROM_QUERY" python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["Q"]))')

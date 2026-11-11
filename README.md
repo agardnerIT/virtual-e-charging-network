@@ -132,8 +132,7 @@ empty answer; the join that works today is `ocpp.transaction.id` (D33).
 
 | Command | What it does |
 |---|---|
-| `make logs` · `make stats` · `make ps` | follow the hub · CPU/RAM of the stack · what is running |
-| `make prom Q='count by (__name__) ({__name__=~"energy.*"})'` | PromQL through the `ops` box; Prometheus has no host port |
+| `make logs` · `make stats` · `make prom Q='...'` | follow the hub · CPU/RAM of the stack · PromQL through the `ops` box (Prometheus has no host port) |
 | `make fault SITE=rural FAULT=voltage-sag ARGS="--depth 0.6 --duration 30"` · `make curtail SITE=solar PCT=60` | inject the one fault this repo models · operator curtailment, distinct from clipping |
 | `make link SITE=wind PROFILE=down` · `make queues` | a hard outage on one link, and the disk queue filling then draining |
 | `make step KW=300` · `make microgrid-status` · `make clock-skew SITE=rural SECONDS=240` | a load step on the island, the grid former's response, and a device clock pushed out at runtime (D42) |

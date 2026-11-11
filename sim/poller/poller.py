@@ -219,15 +219,33 @@ class Emitter:
                     quality: str, device_time: int | None) -> dict:
         # Every attribute here must be *static for the life of a series* or bounded to a few
         # values. This is not a style preference: a metric data point attribute is part of
-        # series identity in every attribute-flattening backend. Two attributes that used to
-        # be here changed on every single poll:
+        # series identity in every attribute-flattening backend, and — measured — it is also
+        # memory in the SDK (D51, findings #57).
         #
-        #   modbus.register.raw          - dropped. It is exactly recoverable from the value
-        #                                  and the retained scale factor (value = raw x
-        #                                  10^scale_factor), so the audit trail survives
-        #                                  without carrying a per-sample copy of the reading.
-        #                                  Measured cost of keeping it: 4 532 series in 15
-        #                                  minutes in Prometheus, from one meter.
+        #   modbus.register.raw     - dropped. It is exactly recoverable from the value and the
+        #                             retained scale factor (value = raw x 10^scale_factor), so the
+        #                             audit trail survives without a per-sample copy of the
+        #                             reading. Measured cost of keeping it: 4 532 series in 15
+        #                             minutes in Prometheus, from one meter (D25).
+        #   energy.device.timestamp - dropped. It varied on every poll, and the OTel Python SDK
+        #                             keys its aggregation state by attribute set and never evicts:
+        #                             0.41-0.63 MiB/min per poller (findings #57). The device clock
+        #                             now rides on the sag/stop spans and the log records, and the
+        #                             bounded modbus.device.clock_error gauge reports the skew.
+        attrs = {
+            "energy.point": point.name,
+            "modbus.register.address": point.address,
+            "modbus.register.scale_factor": decoded.scale_factor if decoded.scale_factor is not None else 0,
+            "energy.quality": quality,
+        }
+        if point.phase is not None:
+            attrs["modbus.register.phase"] = point.phase  # device says A/B/C
+        if point.instance:
+            # A repeating SunSpec model (160, MPPT) is one metric with one data point per
+            # block, not a metric name per block. The block number is the dimension.
+            attrs["modbus.register.instance"] = point.instance
+        if point.direction is not None:
+            attrs["modbus.register.energy_direction"] = point.direction
         return attrs
 
     def callback(self, point: sunspec.Point, metric_name: str):
