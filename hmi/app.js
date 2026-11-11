@@ -1505,7 +1505,19 @@ function renderTrend(site) {
     parts.push(`<circle cx="${px(last[0] * 1000).toFixed(1)}" cy="${py(Number(last[1])).toFixed(1)}" r="2.5" fill="${stroke}"/>`);
   }
 
-  const leg = rows.map((r) => `${labelOf(r.metric)} ${fmt(Number(r.values[r.values.length - 1][1]), isFreq ? 3 : 1)} ${isFreq ? 'Hz' : 'V'}`).join('   ');
+  // One legend entry per *label*, not per series: a poller restart leaves the old series in the
+  // range query for a few minutes (findings #12), and the legend was printing L1/L2/L3 twice with
+  // the two values overlapping in the corner. Keep the newest value per label.
+  const legByLabel = new Map();
+  for (const r of rows) {
+    const label = labelOf(r.metric);
+    const last = r.values[r.values.length - 1];
+    const ts = Number(last[0]);
+    const prev = legByLabel.get(label);
+    if (!prev || ts > prev.ts) legByLabel.set(label, { ts, value: Number(last[1]) });
+  }
+  const leg = [...legByLabel.entries()]
+    .map(([label, v]) => `${label} ${fmt(v.value, isFreq ? 3 : 1)} ${isFreq ? 'Hz' : 'V'}`).join('   ');
   parts.push(`<text class="trend-axis" x="${L}" y="${H - 8}">${leg}</text>`);
   parts.push(`<text class="trend-axis" x="${W - R}" y="${H - 8}" text-anchor="end">15 min, 5 s steps</text>`);
 

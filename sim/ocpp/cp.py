@@ -346,8 +346,6 @@ class EvseSample:
     state: str = "Available"
     power_w: float = 0.0
     offered_a: float = 0.0
-    #: What load management allowed (M4, #12). Equal to `offered_a` when no cap is set.
-    allowed_a: float = 0.0
     #: Why the offer is below what the vehicle asked for: "voltage" (the sag derate) or
     #: "load_management" (the site cap). Bounded vocabulary, so it is a safe attribute.
     throttled_by: str | None = None
@@ -542,13 +540,15 @@ class Metrics:
         )
 
     @staticmethod
-    def _attrs(s: EvseSample) -> dict:
+    def _attrs(s: EvseSample, throttled: bool = False) -> dict:
         attrs = {
             "energy.evse.id": s.evse_id,
             "energy.connector.id": s.connector_id,
             "energy.quality": s.supply_quality,
         }
-        if s.throttled_by:
+        # Only on the metric it explains. Putting it on every EVSE gauge would mint a series per
+        # throttle state for voltage, current and power as well, for a fact none of them carries.
+        if throttled and s.throttled_by:
             attrs["energy.evse.throttled_by"] = s.throttled_by
         return attrs
 
@@ -565,7 +565,8 @@ class Metrics:
         return [Observation(s.power_w, self._attrs(s), s.context) for s in self._samples()]
 
     def _offered(self, _options):
-        return [Observation(s.offered_a, self._attrs(s), s.context) for s in self._samples()]
+        return [Observation(s.offered_a, self._attrs(s, throttled=True), s.context)
+                for s in self._samples()]
 
     def _voltage(self, _options):
         out = []
@@ -838,7 +839,6 @@ class ChargePoint:
                     sample.throttled_by = (
                         "load_management" if offered < uncapped - 0.05
                         else ("voltage" if uncapped < self.vehicle_max_a - 0.05 else None))
-                    sample.allowed_a = round(offered, 1)
                     offered = round(offered, 1)
 
                     # The sag is a span in the session, not an event: it has a start, a
