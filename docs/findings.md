@@ -313,3 +313,12 @@ code or config.
     45 MiB at ten minutes and 65 MiB at fifty-five. Every one of those is a true measurement and only
     one of them is a *footprint*. `tools/poller-soak.sh` exists so the number is quoted with its age,
     and `docs/sizing.md` now says "a *new* poller is 32 MiB" rather than "a poller is 32 MiB".
+
+59. **`docker system df -v` over-reports a volume's size, by about 2x here.** During #3's outage the
+    wind edge's queue volume measured **32 841 KiB** from `docker system df -v` and **16.8 MiB** from
+    `du -sk` inside a throwaway container mounting the same volume. Same volume, same moment: `df -v`
+    counts allocated blocks including filesystem overhead, `du` counts the files. `tools/outage-measure.sh`
+    samples the former (it is one cheap call per minute), so its `disk_kib` column is a *relative*
+    series and its absolute values are not the disk usage. The number to quote is the `du` one:
+    `docker run --rm -v <volume>:/q:ro alpine du -sk /q`. Both are recorded for the outage run, and
+    the write-up quotes the `du` figure with the method.

@@ -375,7 +375,9 @@ def _build_meter(emitter: Emitter, regmap: sunspec.RegisterMap) -> MeterProvider
     # attribute (D51): one bounded number per device, which is the fact an operator actually
     # wants, instead of a timestamp per data point per poll.
     def observe_clock_error(_options):
-        data, _quality, device_time = state.snapshot()
+        # `emitter.state` is the process-wide poller state; this callback is defined inside
+        # _build_meter, which does not take it directly.
+        data, _quality, device_time = emitter.state.snapshot()
         if device_time is None:
             return []
         return [Observation(time.time() - float(device_time))]
