@@ -326,18 +326,24 @@ code or config.
     queue near its limit" is neither — it is `otelcol_exporter_queue_size` against `queue_size`.
     `tools/outage-measure.sh` samples `du`, and `docs/sizing.md` says which one each figure came from.
 
-60. **A drained queue's history is silently rejected by Prometheus' OTLP receiver.** `otelcol`'s
-    export queue replays batches under their **original** timestamps, which is the right thing to do
-    (the data belongs to when it happened). Prometheus, however, only accepts samples inside its
-    out-of-order window, so a drained backlog older than the series' head is dropped — and the
-    collector never knows: the hub's OTLP receiver answers `200`, the edge's queue empties, and the
-    evidence is a single line in Prometheus' log, `msg="Out of order sample from remote write"`.
-    Measured on a 78 s outage: the microgrid's replayed series were all rejected, the edge's queue
-    went to 0, and the store showed a gap. **This is the answer to "what does the backend see after
-    an outage" that #3 asks for, and it is not the answer this repo had assumed**: the pipeline loses
-    nothing, and the store still may. The two claims have to be separated — "nothing was dropped by
-    the pipeline" is measurable at the edge (`enqueue_failed`, queue depth), and "the store kept it"
-    is a *different* measurement, done with `count_over_time` across the outage window.
+60. **Whether a store keeps a replayed backlog is a race, and the collector cannot see who won.**
+    `otelcol`'s export queue replays batches under their **original** timestamps, which is right (the
+    data belongs to when it happened). A time-series store accepts samples only within its
+    out-of-order window, so whether a drained backlog is kept depends on the order in which it meets
+    a *fresh* sample of the same series: whichever arrives second is rejected. Measured on a
+    120-minute outage, per series (`count_over_time(...[120m] @ <restore>`)):
+
+    - the slow, deadbanded `energy_windfarm_frequency_hertz` kept **300 of ~300** samples (100 %);
+    - the fast `energy_windfarm_power_real_watts` kept **658 of ~1 440** (46 %);
+    - the six `energy_turbine_power_real_watts` series kept 467–618 each (32–43 %).
+
+    Prometheus logged **13** `msg="Out of order sample from remote write"` lines during the drain,
+    answered `200` throughout, and the edge's queue emptied: **the pipeline lost nothing and the
+    collector never knew**. So "an outage loses nothing" is a claim about the *pipeline* — measurable
+    at the edge with `enqueue_failed` and queue depth — and "the store kept it" is a *different*
+    measurement, per series, with the window stated. The earlier 100-second result (finding #45) that
+    showed no gap was the short-window case, where the replay lands inside the store's acceptance
+    window; the same experiment at two hours is a different experiment.
 
 61. **An instant PromQL query returns the *evaluation* timestamp, so "pick the newest series" cannot
     be done from the response.** `max(result, key=lambda r: r["value"][0])` looks like it picks the
