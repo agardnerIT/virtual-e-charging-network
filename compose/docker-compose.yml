@@ -395,9 +395,10 @@ services:
       DEVICE_MODEL: VECN SIM-WIND-6X2.5MW
       MODBUS_PORT: "5020"
       HTTP_PORT: "8080"
-      # Best clock of the three sites: a short fibre backhaul means operators actually run
-      # NTP, so this one is only 2 s behind. Rural -7, solar +4, wind -2: skew in every
-      # direction, which is what makes the dual-timestamp story a measurement not a claim.
+      # Second-best clock of the four sites (the depot's comms room is better): a short fibre
+      # backhaul means operators actually run NTP, so this one is only 2 s behind. Rural -7,
+      # solar +4, wind -2, depot -1: skew in every direction, which is what makes the
+      # dual-timestamp story a measurement not a claim.
       DEVICE_CLOCK_SKEW_S: "-2"
       TURBINE_COUNT: "6"
       RATED_KW_EACH: "2500"
