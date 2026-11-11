@@ -63,20 +63,6 @@ require() {
 }
 
 # --- the store, through the same ops box `make prom` uses ---------------------------------------
-_prom() { # _prom <promql> <empty-default>
-  local enc
-  enc=$(Q="$1" python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["Q"]))')
-  $COMPOSE exec -T ops wget -qO- "http://prometheus:9090/api/v1/query?query=$enc" 2>/dev/null \
-    | E="$2" python3 -c '
-import json, os, sys
-try:
-    data = json.load(sys.stdin)["data"]["result"]
-except Exception:
-    print(os.environ["E"]); raise SystemExit
-print(os.environ["E"] if not data else None)' >/tmp/.demo_prom 2>/dev/null
-  cat /tmp/.demo_prom
-}
-
 # qsum <promql>: sum over the series a query returns. Counters, fleet-wide counts, per-bay sums.
 qsum() {
   local enc
