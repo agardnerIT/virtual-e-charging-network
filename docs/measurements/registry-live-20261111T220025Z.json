@@ -1,0 +1,14 @@
+{
+ "utc": "20261111T220025Z",
+ "window_seconds": 60,
+ "deliberately_wrong_metric": false,
+ "entities": 28585,
+ "advisories": 1304,
+ "levels": {
+  "information": 1304
+ },
+ "by_id": {
+  "opt_in_attribute_not_present": 1304
+ },
+ "violations": []
+}

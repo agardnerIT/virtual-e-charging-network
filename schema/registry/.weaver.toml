@@ -1,0 +1,50 @@
+# Weaver project config for the `energy.*` registry. Read by `make registry-check` and by
+# `make registry-live` (weaver finds it by walking up from `--registry /registry`).
+#
+# The three filter groups below are not an attempt to silence the check: each one corresponds to a
+# decision already written down elsewhere, and the decision is named next to it. Everything that
+# survives them is either a real drift in the stack or a real gap in the registry — that is the
+# whole point of #27. `schema/README.md` §"The runtime check" explains each one in prose.
+
+[live-check]
+input_source = "otlp"
+format = "json"
+output = "http"
+fail_on = "violation"
+# NB: weaver 0.28's `search_all_attributes` — the setting that would resolve the standard
+# attributes (service.name, telemetry.sdk.*) against the semantic-conventions dependency this
+# registry now declares in manifest.yaml — refuses a v1 registry: "`search_all_attributes` requires
+# a v2 registry. A v1 registry has no dependencies to search." Measured, not assumed. Migrating the
+# registry to the v2 group/entity shape is the way to get it, and it is a bigger job than this
+# issue. Until then the SDK's and the collector's own attributes are filtered in group 4 below,
+# by namespace, which is at least an auditable list rather than a blanket.
+search_all_attributes = false
+
+# 1. Development stability is the decision, not a finding. 29 057 of the first run's 65 807
+#    advisories said "not stable; stability = development", which is exactly what schema/README.md
+#    says this vocabulary is (a repo's, not a standard).
+[[live-check.finding_filters]]
+exclude = ["not_stable"]
+
+# 2. Weaver's default advice polices the *standard* namespaces: it warns when an attribute extends
+#    an existing namespace, and calls it a violation when a namespace collides with an attribute
+#    name. Both are advice for a vendor adding `acme.*` beside `http.*`. This registry owns
+#    `energy.*` outright, so `energy.turbine` (the turbine index) colliding with
+#    `energy.turbine.status.text` (the readable state) is our own naming, and the advice is noise.
+[[live-check.finding_filters]]
+exclude = ["extends_namespace", "illegal_namespace"]
+
+# 3. `modbus.*` is out of scope by decision D20: those names come from a device's register map, not
+#    from a semantic convention, and registering one vendor's register file is the opposite of what
+#    this file is for. The runtime check sees them because they ride on the same data points.
+[[live-check.finding_filters]]
+exclude = ["missing_metric", "missing_attribute"]
+sample_names = ["modbus.*"]
+
+# 4. The standard attributes are not ours to declare. The OTel SDK and the collector stamp
+#    service.*, telemetry.sdk.* and otel.collector.* on every resource; this registry declares
+#    energy.*, modbus.* and ocpp.* only (D44), and weaver v0.28 cannot search a dependency from a v1
+#    registry (group 0 above). Filtered by namespace, so the list can be read and argued with.
+[[live-check.finding_filters]]
+exclude = ["missing_attribute"]
+sample_names = ["service.*", "telemetry.*", "otel.collector.*"]

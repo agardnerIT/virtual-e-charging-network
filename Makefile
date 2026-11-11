@@ -338,6 +338,13 @@ registry-check:
 registry-stats:
 	@$(WEAVER) registry stats -r /registry
 
+# #27: the same vocabulary, checked against the running stack instead of the emitters. Weaver
+# listens on an OTLP port, the hub is recreated for the duration with one extra exporter
+# (collector/hub/registry-tap.yaml), and the hub is put back on its normal config on every exit
+# path. Exits non-zero on a violation; WRONG=1 renames a metric to prove it.
+registry-live:
+	@WRONG=$(WRONG) DURATION=$(DURATION) ./tools/registry-live.sh
+
 # The byte layout every fidelity claim rests on: encode -> decode for every map, both word orders,
 # the not-implemented sentinel, and the model chain (#23).
 sunspec-check:

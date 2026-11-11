@@ -367,3 +367,30 @@ code or config.
     queue depth tells you when, and the store tells you what, but the counter tells you *that*.
     Also measured: `queue_size` buys time, not volume of history, and the time is site-specific —
     5 000 batches is ~7 h at the wind farm's 11.9 batches/min and ~2.4 h at the highway hub's 34.7.
+
+63. **A two-way gate that compares *names* certifies names, and nothing else.** `make registry-check`
+    has passed since M4 while the registry was wrong in two ways the check could not see: 47 metrics
+    declared `unit: "1"` for values in V, A, Cel, kW.h and var, and sixteen attributes the running
+    stack stamps on every resource (`energy.meter.phases`, `energy.inverter.ac_rating_kw`,
+    `energy.microgrid.inertia_h_s`, …) were not in the registry at all. Both are *plausible-looking* —
+    `unit: "1"` is what a generator writes when it cannot read the unit, and an undeclared attribute
+    is invisible until someone reads one. `make registry-live` (#27) found 452 `unit_mismatch` and
+    360 `missing_attribute` violations in the first 60 s on a stack that was already "done". The
+    generator's bug is the interesting half: the edge declares most of its units with
+    `IsMatch(metric.name, "^energy\.inverter\.(current|…)$")`, and `tools/gen-registry.py` only
+    understood `metric.name == "…"`, so every regex form silently fell back to `1`. Lesson: **a gate
+    is only as strong as the property it compares.** Names agree; units and attributes were never
+    compared by anything until the runtime check existed.
+
+64. **`weaver registry live-check` has four traps, and three of them look like "no findings".**
+    (a) The collector gzips OTLP by default and weaver's receiver answers `Unimplemented: Content is
+    compressed with gzip which isn't supported` — the tap needs `compression: none`. (b) The obvious
+    fix for the standard attributes (`telemetry.sdk.*`, `service.*`) is `search_all_attributes = true`,
+    which refuses a v1 registry: *"requires a v2 registry. A v1 registry has no dependencies to
+    search."* Declaring the semconv dependency in `manifest.yaml` is not enough, so those namespaces
+    are filtered by name with the reason written next to the filter. (c) A weaver left running from an
+    interrupted run keeps serving the **old** report on the admin port, and compose will not recreate
+    a container whose service definition has not changed — the second run then "measured" the first
+    run's findings. The script now removes the container unconditionally before starting. (d) `:4320`
+    and `:4321` are taken on this host by a local Python service (findings #32 again); the admin port
+    is published on 14320.

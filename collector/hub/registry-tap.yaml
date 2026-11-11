@@ -1,0 +1,50 @@
+# The registry tap (#27): one exporter and one pipeline, merged on top of hub.yaml for the
+# duration of `make registry-live` and only then. It is a second file rather than a block in
+# hub.yaml because the collector merges `--config` files, and an exporter defined in the default
+# config but pointed at a host that is not running retries forever — the same noise this file's
+# neighbour refuses to create for Loki (see hub.yaml, "NOT enabled here on purpose").
+#
+# What it is for: `make registry-check` validates the registry against the *emitters* (the edge
+# config and the sims) at build time. This validates it against what the running stack actually
+# sends, which is the only thing that catches a rename on the way through the pipeline.
+#
+# Deliberately NOT the `metrics/visual` pipeline: that one sheds provenance attributes for
+# Prometheus' sake (transform/visual), and weaver should see the vocabulary as the backend of
+# record sees it — the full attribute set, both timestamps included.
+
+exporters:
+  otlp/registry:
+    endpoint: "${env:REGISTRY_TAP_ENDPOINT}"
+    tls:
+      insecure: true
+    # Weaver's OTLP receiver answers `Unimplemented: Content is compressed with gzip which isn't
+    # supported`, and the collector gzips by default. Measured, not guessed (#27).
+    compression: none
+    # Same reasoning as the visual exporters: this is a diagnostic tap, not a store. If weaver is
+    # not there, drop. A queue here would grow a backlog that the backend of record waits behind.
+    retry_on_failure:
+      enabled: false
+    sending_queue:
+      enabled: false
+
+processors:
+  # `make registry-live WRONG=1`: rename one metric the stack definitely emits to a name the
+  # registry definitely does not declare, and prove the check fails. This is the deliberate-wrong-
+  # metric test from #27's definition of done, done as an overlay so that nothing in the edge
+  # config, the registry or hub.yaml is ever edited and reverted. Off by default: an empty
+  # comparison, so the statement is a no-op on the default stack.
+  transform/registry_wrong:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          - set(name, "energy.meter.humidity") where name == "energy.meter.power.apparent" and "${env:REGISTRY_LIVE_WRONG}" == "1"
+
+service:
+  pipelines:
+    metrics/registry:
+      # Same receiver as the other two metrics pipelines, third reader. The tap sees everything
+      # the hub sees; it changes nothing upstream of itself.
+      receivers: [otlp]
+      processors: [transform/registry_wrong, batch]
+      exporters: [otlp/registry]

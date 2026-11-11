@@ -139,9 +139,10 @@ empty answer; the join that works today is `ocpp.transaction.id` (D33).
 | `make cap KW=100` · `make cap-clear` | cap the highway hub at 100 kW as an OCPP profile; watch six bays share it |
 | `make session SITE=metro EVSE=EVSE07` · `make exemplar` | one bay's transaction · ask for exemplars, get `[]` |
 | `make slo` · `make demo` · `make clean` | the four SLOs with targets · the whole story, ending in a verdict · stop and delete everything |
+| `make registry-check` · `make registry-live` | the vocabulary against the emitters at build time · the same vocabulary against the **running stack**: 60 s of weaver live-check, non-zero on drift |
 
 The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `microgrid-step-measure.sh`,
-`clock-inversion.sh`, `demo.sh`, `shot.js`) are in `tools/`.
+`clock-inversion.sh`, `registry-live.sh`, `demo.sh`, `shot.js`) are in `tools/`.
 
 ## Docs map
 
@@ -156,5 +157,8 @@ The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `
 
 ## Status and next
 
-M0–M4 are done and verified: six sites, a picture at <http://127.0.0.1:8091>, six clean edges, `make spine` ending
-in `PowerLoss`, twelve bays. `make demo` runs all of it and fails loudly. Next: **M4** ([milestones](https://github.com/agardnerIT/virtual-e-charging-network/milestones)).
+M0–M5 are done and verified: six sites, a picture at <http://127.0.0.1:8091>, six clean edges, `make spine` ending
+in `PowerLoss`, twelve bays, four SLOs. `make demo` runs all of it and fails loudly. M6 is done bar the optional OpAMP
+stretch, and every milestone issue is closed. The registry is checked in both directions: `make registry-check`
+against the emitters, `make registry-live` against the running stack — the second one found 452 wrong units and
+360 undeclared attributes in a stack that was already passing the first ([`schema/README.md`](schema/README.md)).

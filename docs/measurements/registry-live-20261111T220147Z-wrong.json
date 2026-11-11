@@ -1,0 +1,23 @@
+{
+ "utc": "20261111T220147Z",
+ "window_seconds": 25,
+ "deliberately_wrong_metric": true,
+ "entities": 12223,
+ "advisories": 558,
+ "levels": {
+  "violation": 15,
+  "information": 543
+ },
+ "by_id": {
+  "missing_metric": 15,
+  "opt_in_attribute_not_present": 543
+ },
+ "violations": [
+  {
+   "sample": "energy.meter.humidity",
+   "id": "missing_metric",
+   "message": "Metric does not exist in the registry.",
+   "count": 15
+  }
+ ]
+}

@@ -10,19 +10,29 @@ cfg = open('collector/edge/site.yaml').read()
 
 # --- metric name / unit / description triples out of the OTTL statements ---------------
 names = re.findall(r'- set\(metric\.name, "(energy\.[a-z0-9_.]+)"\)', cfg)
+metrics = sorted(set(names))
+
 units = {}
 for m in re.finditer(r'- set\(metric\.unit, "([^"]+)"\)\s+where\s+(.+)$', cfg, re.M):
     unit, where = m.group(1), m.group(2).strip()
     for n in re.findall(r'"(energy\.[a-z0-9_.]+)"', where):
         units.setdefault(n, unit)
+    # Most of the edge's unit statements are IsMatch(name, "^energy\.inverter\.(current|...)$"),
+    # not name == "...". Missing that form wrote `unit: "1"` on 47 metrics whose values are V,
+    # A, Cel, kW.h and so on - invisible to the build-time gate, which compares metric *names*,
+    # and caught by `make registry-live` (#27) as 452 unit_mismatch findings on the first run.
+    is_match = re.match(r'IsMatch\(metric\.name, "(.+)"\)$', where)
+    if is_match:
+        rx = re.compile(is_match.group(1).replace('\\\\.', '.'))
+        for n in metrics:
+            if rx.search(n):
+                units.setdefault(n, unit)
 descs = {}
 for m in re.finditer(r'- set\(metric\.description, "([^"]+)"\)\s+where\s+metric\.name == "(energy\.[a-z0-9_.]+)"', cfg):
     descs[m.group(2)] = m.group(1)
 # regex-based descriptions apply to a family: approximate by prefix
 for m in re.finditer(r'- set\(metric\.description, "([^"]+)"\)\s+where\s+IsMatch\(metric\.name, "([^"]+)"\)', cfg):
     pass
-
-metrics = sorted(set(names))
 
 # --- application instruments (charge point, CSMS, market feed), parsed from the source -----
 app: dict[str, tuple[str, str, str]] = {}
@@ -66,46 +76,68 @@ for n, (inst, unit, desc) in {**_unused_app, **app}.items():
     units.setdefault(n, unit)
     descs.setdefault(n, desc)
 
-# which attributes each family can carry: a coarse map, by family prefix
-attr_always = ['energy_site_id_ref']
+# Which attributes each metric can carry, and at what requirement level. None means
+# `recommended`; 'opt_in' means "a dimension that some points of the family carry and aggregate
+# points do not" — an aggregate voltage sample has no `energy.phase`, and saying it is recommended
+# produced 31 019 `recommended_attribute_not_present` findings the first time #27 ran.
+#
+# Three things are deliberately NOT per-metric (they were, and both were wrong):
+#   * site identity and geo are *resource* attributes. The hub copies them onto data points at the
+#     Prometheus boundary only (hub.yaml transform/visual), so the OTLP stream never carries them
+#     on a metric and a registry that demanded them per metric described the visual shaping, not
+#     the semantics.
+#   * `energy.device.timestamp` never rides on a metric at all (D51, the 0.5 MiB/min leak), so
+#     declaring it per metric contradicted the decision it was written from.
 def attrs_for(n):
-    a = ['energy.site.id', 'energy.site.name', 'energy.site.kind', 'geo.latitude', 'geo.longitude']
+    a: dict[str, str | None] = {}
     if n.startswith(('energy.meter.', 'energy.inverter.', 'energy.turbine.', 'energy.windfarm.',
                      'energy.pv.', 'energy.microgrid.', 'energy.bess.')):
-        a += ['otel.data_point.quality', 'energy.point', 'modbus.register.address',
-              'modbus.register.scale_factor', 'energy.device.timestamp', 'energy.receive.timestamp']
+        a.update({'otel.data_point.quality': None, 'energy.point': None,
+                  'modbus.register.address': None, 'modbus.register.scale_factor': None,
+                  'energy.receive.timestamp': None})
     if re.search(r'\.(voltage|current|power\.)', n) or n.endswith(('voltage', 'current')):
-        a.append('energy.phase')
-    if n.startswith('energy.evse.') or n.startswith('energy.session.'):
-        a += ['energy.evse.id', 'energy.connector.id']
+        a['energy.phase'] = 'opt_in'
+    if n.startswith('energy.evse.'):
+        a.update({'energy.evse.id': None, 'energy.connector.id': None})
+    elif n.startswith('energy.session.'):
+        a.update({'energy.evse.id': 'opt_in', 'energy.connector.id': 'opt_in'})
     if n.endswith('mppt.power') or '.mppt.' in n:
-        a.append('energy.mppt')
+        a['energy.mppt'] = 'opt_in'
     if n.startswith(('energy.turbine.', 'energy.windfarm.')):
-        a.append('energy.turbine')
+        a['energy.turbine'] = 'opt_in'
     if n == 'energy.pv.irradiance':
-        a.append('energy.irradiance.plane')
+        a['energy.irradiance.plane'] = 'opt_in'
     if n.startswith('energy.microgrid.source.'):
-        a.append('energy.source.name')
+        a['energy.source.name'] = 'opt_in'
     if n.startswith('energy.bess.status'):
-        a.append('energy.bess.status.text')
+        a['energy.bess.status.text'] = 'opt_in'
     if n.startswith('energy.bess.hold_reason'):
-        a.append('energy.bess.hold_reason.text')
+        a['energy.bess.hold_reason.text'] = 'opt_in'
     if n == 'energy.inverter.status':
-        a.append('energy.inverter.status.text')
-    if n in ('energy.inverter.curtailment', 'energy.windfarm.curtailment'):
-        a.append('energy.curtailment.text')
-    if n in ('energy.inverter.fault_code', 'energy.windfarm.fault_code'):
-        a.append('energy.fault_code.text')
+        a['energy.inverter.status.text'] = 'opt_in'
+    # The readable text is per device, because it is written per device on the edge: the generic
+    # `energy.curtailment.text` / `energy.fault_code.text` this used to emit were never sent by
+    # anything (D4: a registry must not describe an imaginary device).
+    if n == 'energy.inverter.curtailment':
+        a['energy.inverter.curtailment.text'] = 'opt_in'
+    if n == 'energy.inverter.fault_code':
+        a['energy.inverter.fault_code.text'] = 'opt_in'
+    if n == 'energy.windfarm.curtailment':
+        a['energy.windfarm.curtailment.text'] = 'opt_in'
     if n == 'energy.turbine.status':
-        a.append('energy.turbine.status.text')
+        a['energy.turbine.status.text'] = 'opt_in'
     if n == 'energy.windfarm.status':
-        a.append('energy.windfarm.status.text')
+        a['energy.windfarm.status.text'] = 'opt_in'
     if n == 'energy.meter.energy':
-        a.append('energy.direction')
+        a['energy.direction'] = 'opt_in'
+    if n == 'energy.meter.voltage':
+        a['energy.voltage.reference'] = 'opt_in'
+    if n.startswith('energy.market.'):
+        a['energy.market.region'] = 'opt_in'
     if n == 'energy.microgrid.grid_forming_unit':
-        a.append('energy.microgrid.grid_forming_source')
+        a['energy.microgrid.grid_forming_source'] = 'opt_in'
     if n == 'ocpp.transactions.stopped':
-        a.append('ocpp.stop.reason')
+        a['ocpp.stop.reason'] = 'opt_in'
     return a
 
 def family(n):
@@ -135,6 +167,8 @@ attributes = {
     'energy.irradiance.plane': ('string', 'Which plane an irradiance reading is in.', ['horizontal', 'plane_of_array']),
     'energy.source.name': ('string', 'Which generating source block a reading belongs to.', ['solar', 'wind']),
     'energy.point': ('string', 'The device-side point name, for provenance back to the register map.', ['VphA', 'W']),
+    'energy.voltage.reference': ('string', 'What a voltage reading is referenced to. Bounded: the edge collector writes it.', ['phase_neutral', 'phase_phase']),
+    'energy.market.region': ('string', 'NEM region the spot price belongs to. Bounded: five regions.', ['NSW1', 'VIC1', 'QLD1', 'SA1', 'TAS1']),
     'modbus.register.address': ('int', 'Absolute Modbus register address.', None),
     'modbus.register.scale_factor': ('int', 'The device scale factor applied (value = raw x 10^sf).', None),
     'energy.device.timestamp': ('double', 'The device clock at the moment of the reading. Provenance, carried on spans and logs; never a metric attribute (D51) and never a sort key (D42).', None),
@@ -142,8 +176,9 @@ attributes = {
     'energy.bess.status.text': ('string', 'Readable battery state.', ['idle', 'charging', 'discharging', 'hold']),
     'energy.bess.hold_reason.text': ('string', 'Why the grid former stopped doing what the busbar asked.', ['none', 'soc-high', 'soc-low', 'power-limit']),
     'energy.inverter.status.text': ('string', 'Readable inverter operating state.', ['off', 'sleeping', 'mppt', 'fault']),
-    'energy.curtailment.text': ('string', 'Why generation is held down.', ['none', 'export_limited', 'inverter_clipped', 'connection_cap']),
-    'energy.fault_code.text': ('string', 'Readable device fault code.', ['none']),
+    'energy.inverter.curtailment.text': ('string', 'Why the inverter is held down, readable. Bounded: five SunSpec curtailment states.', ['none', 'export_limited', 'inverter_clipped']),
+    'energy.inverter.fault_code.text': ('string', 'Readable inverter fault code. Bounded: the model-103 fault table.', ['none']),
+    'energy.windfarm.curtailment.text': ('string', 'Why the farm is held down, readable. Bounded: three connection states.', ['none', 'export_limited', 'connection_cap']),
     'energy.turbine.status.text': ('string', 'Readable turbine state.', ['idle', 'starting', 'producing', 'curtailed', 'fault']),
     'energy.windfarm.status.text': ('string', 'Readable farm state.', ['idle', 'producing']),
     'energy.microgrid.grid_forming_source': ('string', 'Which asset sets the voltage and frequency on an island.', ['bess']),
@@ -196,9 +231,9 @@ for fam, names_in_fam in fams.items():
         lines += [f'  - id: metric.{n}', '    type: metric', f'    metric_name: {n}',
                   f'    brief: {q(desc)}', f'    instrument: {inst}', f'    unit: {q(unit)}',
                   '    stability: development', '    attributes:']
-        for a in attrs_for(n):
-            lines.append(f'      - ref: {a}')
-        if not attrs_for(n):
-            lines.append('      - ref: energy.site.id')
+        for ref, level in attrs_for(n).items():
+            lines.append(f'      - ref: {ref}')
+            if level:
+                lines.append(f'        requirement_level: {level}')
 open('schema/registry/energy.yaml','w').write('\n'.join(lines) + '\n')
 print('wrote schema/registry/energy.yaml with', len(metrics), 'metrics and', len(attributes), 'attributes')

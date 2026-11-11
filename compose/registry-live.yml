@@ -1,0 +1,59 @@
+# Overlay for `make registry-live` (#27). Never read by `make up`.
+#
+#   docker compose -f compose/docker-compose.yml -f compose/registry-live.yml up -d weaver
+#   docker compose -f compose/docker-compose.yml -f compose/registry-live.yml up -d --no-deps hub
+#
+# Two changes, both undone by the target when it exits:
+#   weaver — the live-check listener, on the noc network so the hub can reach it, admin port
+#            published to the host so the script can POST /stop and GET /report
+#   hub    — the same config file as always, plus collector/hub/registry-tap.yaml, merged by the
+#            collector's second `--config`. No pipeline in hub.yaml changes.
+name: otel-ot
+
+services:
+  weaver:
+    image: otel/weaver:latest
+    container_name: vecn-weaver
+    restart: "no"
+    working_dir: /home/weaver
+    command:
+      - registry
+      - live-check
+      - --registry=/registry
+      - --input-source=otlp
+      # Both the OTLP listener and the admin port bind this address (weaver, 0.28.0).
+      - --otlp-grpc-address=0.0.0.0
+      - --otlp-grpc-port=4319
+      - --admin-port=4320
+      # Ignored because -o http keeps the report served until POST /shutdown.
+      - --inactivity-timeout=3600
+      # Serve the report rather than streaming it: the script wants one document to triage, and
+      # the exit code is what the definition of done in #27 asks for.
+      - --output=http
+      - --format=json
+      - --fail-on=violation
+      - --config=/registry/.weaver.toml
+    healthcheck:
+      # weaver is the only image in this stack with an HTTP port of its own; ask it, rather than
+      # sleeping and hoping.
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4320/health"]
+      interval: 2s
+      timeout: 2s
+      retries: 25
+      start_period: 15s
+    ports:
+      - "127.0.0.1:14320:4320"   # 4320/4321 are already taken on this host (findings #32)
+    volumes:
+      - ../schema/registry:/registry:ro
+    networks: [noc]
+
+  hub:
+    command:
+      - --config=/etc/otel/config.yaml
+      - --config=/etc/otel/config-registry-tap.yaml
+    environment:
+      REGISTRY_TAP_ENDPOINT: "weaver:4319"
+      # `make registry-live WRONG=1` sets this to 1; see transform/registry_wrong.
+      REGISTRY_LIVE_WRONG: "${WRONG:-0}"
+    volumes:
+      - ../collector/hub/registry-tap.yaml:/etc/otel/config-registry-tap.yaml:ro

@@ -126,7 +126,11 @@ The full mapping table also lives in `POINTS` in `hmi/app.js`, which is the one 
 declares what it draws — and, machine-readably, in [`schema/registry/energy.yaml`](../schema/README.md):
 a Weaver registry of every metric name, unit, instrument and bounded attribute this stack emits.
 `make registry-check` validates it *and* asserts it agrees with the emitters in both directions, so
-a new metric cannot land in a collector without also landing in the vocabulary.
+a new metric cannot land in a collector without also landing in the vocabulary. `make registry-live`
+is the runtime half (#27): weaver live-check taps the running hub for 60 s and reports what the
+stack is *actually* sending — that is what caught 47 metrics carrying the wrong unit and sixteen
+undeclared resource attributes while the build-time gate was green. See
+[`schema/README.md`](../schema/README.md#the-runtime-check-make-registry-live).
 
 ### 3.2 The dimensions you can split on
 
