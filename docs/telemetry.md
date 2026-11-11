@@ -151,6 +151,8 @@ D25 and `docs/findings.md` #9).
 | `energy_mppt` | `energy.mppt` | `1`, `2` | `energy.inverter.mppt.*` | per-tracker charts |
 | `energy_turbine` | `energy.turbine` | `1` … `6` | `energy.turbine.*` | per-machine charts |
 | `energy_source_name` | `energy.source.name` | `solar`, `wind` | `energy.microgrid.source.*` | one line per source on the island |
+| `energy_evse_throttled_by` | `energy.evse.throttled_by` | `voltage`, `load_management` | `energy.evse.current.offered` | tell "the grid is sagging" from "our own capacity cap" |
+| `energy_market_region` | `energy.market.region` | `NSW1` | `energy.market.*` | join a price to a cost |
 | `energy_bess_status_text`, `energy_bess_hold_reason_text` | `energy.bess.status.text`, `energy.bess.hold_reason.text` | `idle`/`charging`/`discharging`/`hold`, `none`/`soc-high`/`soc-low`/`power-limit` | `energy.bess.status`, `energy.bess.hold_reason` | why the grid former is (or is not) doing something |
 | `energy_microgrid_grid_forming_source` | `energy.microgrid.grid_forming_source` | `bess` | `energy.microgrid.grid_forming_unit` | which asset is the grid former |
 | `energy_irradiance_plane` | `energy.irradiance.plane` | `horizontal`, `plane_of_array` | `energy.pv.irradiance` | GH vs POA |
