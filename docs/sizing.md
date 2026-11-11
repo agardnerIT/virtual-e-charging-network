@@ -228,6 +228,25 @@ pipeline. Reproduce with `make up VISUAL_PHASES=drop` and the two queries above.
 
 ---
 
+## The six-site stack, on a clean start (M3/M4 gate)
+
+`make clean && make up`, six sites, all edge queues at 0, `make footprint` (which is `make stats`
+formatted as this file's table):
+
+| | |
+|---|---|
+| containers | **31** |
+| `docker stats`, whole stack | **1 104 MiB (1.08 GiB)** |
+| budget (D10) | 3 GB — **1.9 GB headroom** |
+| browser and map | <http://127.0.0.1:8091> |
+
+The 31 containers are six edge collectors, six devices, six pollers, three charge points with three
+CSMSs, the hub, the market feed, toxiproxy, the ops box, and four visual containers. The per-container
+table is one command away (`make footprint`) and is deliberately not pasted here in full: it changes
+with every session and every process age, which is the whole lesson of the next section.
+
+---
+
 ## The marginal cost of a site, measured by adding two (M4, #18)
 
 The headline number in this file is a *whole stack*, which is the wrong unit for anyone planning a
