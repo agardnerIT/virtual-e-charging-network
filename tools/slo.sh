@@ -19,7 +19,6 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-WINDOW="${WINDOW:-1h}"
 COMPOSE="docker compose -f compose/docker-compose.yml"
 
 q() { # q <promql> -> a number, or "n/a"
@@ -55,6 +54,9 @@ row() { # row <name> <value> <target text> <PASS condition as awk>
 
 STOPPED='sum(ocpp_transactions_stopped_total{ocpp_stop_reason="Local"})'
 ALLSTOP='sum(ocpp_transactions_stopped_total)'
+# This is a label for the output, not a query parameter. See the header: the counters are
+# process-scoped, so a *window* would have to be `increase(...[1h])`, and that returns 0 for a
+# counter that has incremented once (the step happened before the first sample Prometheus scraped).
 WINDOW="since the charge point and CSMS processes started"
 
 printf '\nSLOs %s (session-level metrics; the CSMS is in-memory by design, D34)\n\n' "$WINDOW"
