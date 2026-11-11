@@ -1212,11 +1212,16 @@ const ALARMS = [
     id: 'supply-sag',
     label: 'Supply voltage below 0.94 pu',
     pri: 'High',
-    nominal: (site) => (site.kind === 'microgrid' ? 230 : (TEMPLATES[site.kind] || {}).evse === false ? 398 : 230),
-    test: (p, site) => p.def.slot === 'voltage'
-      && p.phase   // per-phase samples only: the aggregate hides a single-phased sag
-      && p.value !== null
-      && p.value < 0.94 * (site.kind === 'microgrid' ? 230 : (TEMPLATES[site.kind] || {}).evse === false ? 398 : 230),
+    // The nominal is a property of the site's voltage class, and it is derived exactly the way the
+    // trend panel derives it: a template may name it, a generation site is 398 V L-N (690 V L-L),
+    // and everything else is 230 V. One rule, two readers.
+    test: (p, site) => {
+      const tpl = TEMPLATES[site.kind] || {};
+      const nom = tpl.v_nominal || (tpl.evse === false ? 398 : 230);
+      // Per-phase samples only: an aggregate voltage would hide a single-phased sag, which is the
+      // event this alarm exists for.
+      return p.def.slot === 'voltage' && !!p.phase && p.value !== null && p.value < 0.94 * nom;
+    },
     // Which bays: the EVSEs at this site that are charging. The sag's own point does not know
     // about bays, so the count comes from the same page's EVSE points.
     affected: (site) => evalvesCharging(site).length,
