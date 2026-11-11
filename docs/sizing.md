@@ -5,7 +5,7 @@ arm64 only. Every number below was measured by running the stack. Re-run `make s
 change that affects the footprint and update this file.
 
 **Host:** Apple M2, 8 GB, arm64 (Docker Desktop, `arm64` images only).
-**Stack:** M3 — 5 edge collectors (rural, solar, wind, metro, microgrid), 1 hub, the impaired
+**Stack:** M4 — 6 edge collectors (rural, solar, wind, metro, microgrid, highway), 1 hub, the impaired
 link, the rural SunSpec/Modbus meter + poller, the solar SunSpec/Modbus inverter + poller, the
 wind farm's SunSpec-shaped 6-turbine device + poller, the depot's meter + poller, and the
 island's microgrid controller + poller (all five devices and all five pollers are the *same
@@ -280,7 +280,7 @@ Measured on the running five-site stack (`docker stats`, single binary, filesyst
 |---|---|
 | Loki, started but idle | 30.3 MiB |
 | Loki after 2 000 synthetic OCPP entries (a single stream) | 38.9 MiB |
-| Loki receiving the hub's real OCPP log traffic from all five sites | **52.5 MiB** |
+| Loki receiving the hub's real OCPP log traffic from the sites | **52.5 MiB** |
 
 So a log store costs about **50 MiB** — 5 % of the stack, well inside D10's ~2 GB headroom.
 "Too expensive" would have been a false reason, and this section exists because it would have

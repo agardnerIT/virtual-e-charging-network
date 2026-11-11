@@ -19,9 +19,9 @@
 #   https://github.com/agardnerIT/virtual-e-charging-network/milestones
 # plan.md holds the decisions (D1-D38 and counting); it is the source of truth.
 #
-# Five sites today: rural (weak feeder, 2 bays), solar-mildura, wind-snowtown,
-# metro-tottenham (12 bays, fibre) and microgrid-kangaroo-island (solar + wind + BESS, no
-# feeder, its own grid former - so its signature is frequency, not voltage).
+# Six sites: rural (weak feeder, 2 bays), solar-mildura, wind-snowtown, metro-tottenham (12 bays,
+# fibre), highway-hume (6 bays under a site capacity cap) and microgrid-kangaroo-island (solar +
+# wind + BESS, no feeder, its own grid former - so its signature is frequency, not voltage).
 
 COMPOSE := docker compose -f compose/docker-compose.yml
 TOXIPROXY ?= http://localhost:8474

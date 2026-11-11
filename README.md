@@ -82,7 +82,7 @@ links; the visual layer is Prometheus + Jaeger + our own map and mimic, fed only
 | **Collectors' own telemetry** | `otelcol_*` queue depth/capacity, refused and failed exports — the store-and-forward signal | Edge `:8888`, hub `:8889`, `make queues` | [§6](docs/telemetry.md#6-the-collectors-own-telemetry) |
 
 **Configs:** [`collector/edge/site.yaml`](collector/edge/site.yaml) holds every device semantic and is
-identical for all five sites; [`collector/hub/hub.yaml`](collector/hub/hub.yaml) holds the fan-out.
+identical for all six sites; [`collector/hub/hub.yaml`](collector/hub/hub.yaml) holds the fan-out.
 **You only ever edit the hub** — point its two `VISUAL_*_ENDPOINT` variables at your own OTLP endpoint,
 or add an exporter to its `metrics` pipeline for the untouched backend-of-record copy
 ([§7](docs/telemetry.md#7-where-the-configs-are-and-how-to-point-this-at-your-backend); to break it on
@@ -148,7 +148,7 @@ The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `
 
 | | |
 |---|---|
-| [`docs/telemetry.md`](docs/telemetry.md) | **start here if you just cloned it**: five sites, every metric and its split keys, traces, logs, pointing it at your backend |
+| [`docs/telemetry.md`](docs/telemetry.md) | **start here if you just cloned it**: six sites, every metric and its split keys, traces, logs, pointing it at your backend |
 | [`plan.md`](plan.md) · [issues](https://github.com/agardnerIT/virtual-e-charging-network/issues) | decisions D1–D43 (source of truth) · the work, in milestones |
 | [`docs/sites/`](docs/sites) | [`rural`](docs/sites/rural.md) scaling, deadband, the sag · [`generation`](docs/sites/generation.md) clipping, cube law · [`metro`](docs/sites/metro.md) twelve bays · [`highway`](docs/sites/highway.md) load management · [`microgrid`](docs/sites/microgrid.md) why frequency moves |
 | [`docs/ot-primer.md`](docs/ot-primer.md) · [`docs/standards.md`](docs/standards.md) | the electrical side for IT people, including the clock problem · which spec each device claims, and how faithfully |
@@ -157,5 +157,5 @@ The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `
 
 ## Status and next
 
-M0–M3 are done and verified: five sites, a picture at <http://127.0.0.1:8091>, five clean edges, `make spine` ending
+M0–M4 are done and verified: six sites, a picture at <http://127.0.0.1:8091>, six clean edges, `make spine` ending
 in `PowerLoss`, twelve bays. `make demo` runs all of it and fails loudly. Next: **M4** ([milestones](https://github.com/agardnerIT/virtual-e-charging-network/milestones)).

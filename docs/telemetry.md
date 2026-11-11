@@ -15,8 +15,8 @@ measured, the query that produces it is given so you can re-measure.
 
 ## 1. The sites, spelled out
 
-Five sites. Two are **loads** (they consume electricity — sites with cars charging), two are
-**generators** (they produce it), and one is an **island** (it makes its own frequency). All five run
+Six sites. Three are **loads** (they consume electricity — sites with cars charging), two are
+**generators** (they produce it), and one is an **island** (it makes its own frequency). All six run
 the same images and the same collector config; they differ only by environment variables and by what
 is plugged into the site network (plan.md D10).
 
@@ -40,7 +40,7 @@ Read that table once and the rest of the repo makes sense. Two things surprise p
   in §3.3 are site-shaped: `energy.meter.*` at the three feeder-connected sites, `energy.evse.*` /
   `energy.session.*` only at the two charging sites, `energy.inverter.*`/`energy.pv.*` only at
   Mildura, `energy.turbine.*` / `energy.windfarm.*` only at Snowtown, and
-  `energy.microgrid.*`/`energy.bess.*` only on the island. A chart that queries all five sites at
+  `energy.microgrid.*`/`energy.bess.*` only on the island. A chart that queries all six sites at
   once will show gaps, and that is correct rather than broken.
 - **The island is the odd one out on purpose.** It has no `energy.meter.*` at all: there is no
   feeder meter because there is no feeder. Its primary signal is
@@ -51,21 +51,30 @@ Site identity is not set by the simulators. The **edge collector** stamps all fi
 (id, name, kind, latitude, longitude) on every signal on the way out, so every backend and every view
 can place the data without knowing anything about the site (D20, `collector/edge/site.yaml`).
 
-Measured, on the running stack:
+The series count is a moving quantity and quoting it as a single number is how the earlier
+version of this page got it wrong twice. It moves because of live sessions (two attributes —
+`energy.session.id`, `ocpp.transaction.id` — are per-transaction), because a restarted collector
+mints new series, and because a site whose link is down keeps its series in the store's lookback for
+five minutes after the data stops. So count only series that reported recently:
 
 ```
-310   energy_* series across the five sites (this total moves with live sessions)
- 90   at Snowtown (6 turbines × 13 signals + 12 farm-level signals)
- 40   at Mildura (28 signals; the energy register appears twice, import and export)
- 27   on the island (23 metric families; the 4 source families have solar and wind data points)
-153   across the two charging sites (six series per bay, plus one per live transaction)
+make prom Q='count(last_over_time({__name__=~"energy_.*"}[45s]))'
+make prom Q='count by (energy_site_name) (last_over_time({__name__=~"energy_.*"}[45s]))'
 ```
 
-Reproduce with `make prom Q='count({__name__=~"energy_.*"})'` and
-`make prom Q='count by (energy_site_name) ({__name__=~"energy_.*"})'`. Counts move by design: two
-attributes (`energy.session.id`, `ocpp.transaction.id`) are per-transaction, so the total depends on
-how many sessions are live right now. `docs/sizing.md` has the before/after table that isolates the
-cost of the twelve bays from that churn.
+The shape, per site, is stable: **six series per charging bay** (voltage, current, power, state,
+session energy, offered current), **~90 at Snowtown** (6 turbines × 13 signals plus farm-level),
+**~45 at Mildura** (inverter + irradiance + the ride-through registers), **~27 on the island**
+(23 families, of which the four source families carry two data points each), and **two market
+series** (price and feed age, stamped with the rural site's identity because the cost query joins on
+it). Measured totals for the current six-site stack are in `docs/sizing.md`.
+
+`make prom Q='count({__name__=~"energy_.*"})'` — without the `last_over_time` — also works, and
+includes the residue: it is the query that produced the wrong numbers, which is why it is the second
+one mentioned here rather than the first.
+
+`docs/sizing.md` has the before/after tables that isolate the cost of the twelve bays, and of a
+whole site, from that churn.
 
 ---
 

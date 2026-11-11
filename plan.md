@@ -1,7 +1,7 @@
 # Virtual E-Charging Network — Plan
 
 > **Last updated:** 2026-11-11
-> **Status:** M0–M3 complete: five sites (rural, solar, wind, metro depot, isolated microgrid), one
+> **Status:** M0–M4 complete: six sites (rural, solar, wind, metro depot, highway hub, isolated microgrid), one
 > hub, one impaired link per site, sessions as traces, store-and-forward through a measured outage,
 > and a clock-skew demonstration that makes an effect precede its cause.
 > **Work is tracked in [GitHub issues and milestones](https://github.com/agardnerIT/virtual-e-charging-network/milestones).**
