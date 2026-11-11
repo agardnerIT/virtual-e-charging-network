@@ -228,30 +228,6 @@ class Emitter:
         #                                  without carrying a per-sample copy of the reading.
         #                                  Measured cost of keeping it: 4 532 series in 15
         #                                  minutes in Prometheus, from one meter.
-        #   energy.device.timestamp      - KEPT, deliberately, and it does vary per sample.
-        #                                  It is what makes the dual-timestamp story real
-        #                                  (plan.md D12, D23): "the device says it happened then,
-        #                                  the collector observed it now". The Python SDK 1.45.1
-        #                                  Observation(value, attributes, context) has no way to
-        #                                  stamp a data point's own timestamp, so an attribute is
-        #                                  the only place it can go - the same wall the collector
-        #                                  hit in D23, one layer further out.
-        attrs = {
-            "energy.point": point.name,
-            "modbus.register.address": point.address,
-            "modbus.register.scale_factor": decoded.scale_factor if decoded.scale_factor is not None else 0,
-            "energy.quality": quality,
-        }
-        if point.phase is not None:
-            attrs["modbus.register.phase"] = point.phase  # device says A/B/C
-        if point.instance:
-            # A repeating SunSpec model (160, MPPT) is one metric with one data point per
-            # block, not a metric name per block. The block number is the dimension.
-            attrs["modbus.register.instance"] = point.instance
-        if point.direction is not None:
-            attrs["modbus.register.energy_direction"] = point.direction
-        if device_time is not None:
-            attrs["energy.device.timestamp"] = device_time
         return attrs
 
     def callback(self, point: sunspec.Point, metric_name: str):
@@ -393,6 +369,23 @@ def _build_meter(emitter: Emitter, regmap: sunspec.RegisterMap) -> MeterProvider
                         f"{', '.join(p.base_name or p.name for p in points)}, engineering "
                         f"values with the device's own scale factors applied",
         )
+
+    # The measured clock error: how far the device's own clock is from the collector's, at the
+    # moment of the read. This is what replaces the per-sample `energy.device.timestamp`
+    # attribute (D51): one bounded number per device, which is the fact an operator actually
+    # wants, instead of a timestamp per data point per poll.
+    def observe_clock_error(_options):
+        data, _quality, device_time = state.snapshot()
+        if device_time is None:
+            return []
+        return [Observation(time.time() - float(device_time))]
+
+    meter.create_observable_gauge(
+        "modbus.device.clock_error", callbacks=[observe_clock_error], unit="s",
+        description="The device's own clock minus this collector's, at the last read. Positive "
+                    "means the device is behind. A stale device clock is quality=stale, not "
+                    "comms-lost (D43).",
+    )
 
     for name, (metric_name, unit) in _CONFIG_POINTS.items():
         point = regmap.points.get(name)

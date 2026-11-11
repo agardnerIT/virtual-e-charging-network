@@ -159,8 +159,12 @@ D25 and `docs/findings.md` #9).
 | `modbus_register_address`, `modbus_register_scale_factor` | same | register address, scale | Modbus-derived metrics | provenance: which register, what scaling |
 | `job`, `instance` | `service.namespace/service.name`, `service.instance.id` | `vecn/modbus-poller`, `vecn/vecn-ocpp-cp` | everything | provenance, and one-off `instance` churn after a restart (#12) |
 
-Three attributes ride end to end but are **shed at the Prometheus boundary on purpose** (D25): 
-`energy.receive.timestamp`, `energy.device.timestamp`, `modbus.register.raw`. They are payload, not
+Three payload values were **shed at the Prometheus boundary on purpose** (D25):
+`energy.receive.timestamp`, `energy.device.timestamp`, `modbus.register.raw`. Since D51 two of them
+are no longer emitted as data point attributes at all: a per-sample attribute is a memory leak in
+the SDK before it is a cardinality problem in the store (findings #57), so the device clock rides on
+spans and logs and the metric path carries `modbus_device_clock_error_seconds` — one bounded value
+per device. The hub still sheds the names, for data from older collectors. They are payload, not
 dimensions — keeping them in Prometheus mints a new series on every poll (measured: 4 532 series in
 15 minutes from one meter). They survive on the backend-of-record path and in traces/logs. So in
 Prometheus you do **not** get the device clock; use `modbus_device_clock_offset_seconds` (§3.5) or a

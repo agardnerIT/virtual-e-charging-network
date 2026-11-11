@@ -315,6 +315,14 @@ sag's timestamp comes from the meter that measured it, the stop's comes from the
 decided it, and the two clocks disagree. That is not a bug in the pipeline — it is two facts from two
 clocks, and it is what any OT estate looks like.
 
+**Where each clock rides, in this stack.** The device clock is provenance, so it rides where
+provenance belongs: on the charge point's `energy.voltage_sag` and `ocpp.stop_transaction` spans
+(`energy.supply.device.timestamp`), and on the poller's log records. It is deliberately **not** a
+metric attribute any more: the OTel SDK keys aggregation state by attribute set and never evicts, so
+a timestamp per data point per poll leaked half a megabyte a minute per poller (D51, findings #57).
+The bounded metric between the two clocks is `modbus_device_clock_error_seconds`, and the receive
+time is the store's sample time.
+
 **What a backend should do, and this repo does:**
 
 1. **Order by receive time.** It is the only clock that is comparable across sources. In this stack

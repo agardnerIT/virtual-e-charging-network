@@ -296,3 +296,20 @@ code or config.
     `docker compose -f ... -f overlay.yml rm -sf <the overlay's services>`
     (`--remove-orphans` is the other trap: with an overlay it will happily remove the *base*
     project's orphaned containers).
+
+57. **A per-sample data point attribute is a memory leak in the OTel Python SDK, before it is a
+    cardinality problem in a store.** `sim/poller/poller.py` carried `energy.device.timestamp` on
+    every data point of every poll, deliberately (D12/D23), and it cost **+0.41 MiB/min** on the
+    rural poller and **+0.63 MiB/min** on the solar one over a 55-minute soak (`tools/poller-soak.sh`),
+    while the charge point and CSMS — whose attributes are bounded (`energy.evse.id`,
+    `energy.quality`) — stayed flat at ±0.07 MiB/min. The SDK keys its aggregation state by attribute
+    set and never evicts, so a new timestamp per poll is a new aggregation entry per poll, forever.
+    At solar's rate that is ~900 MiB/day, which is why `poller-metro` measured 103.6 MiB beside a
+    fresh poller's 31.8 MiB (#18). Fixed by D51: the clock rides on spans and logs, and the metric
+    path carries one bounded `modbus.device.clock_error` per device. The rule generalises D25 —
+    payload is not a dimension, and the SDK applies that rule *before* the data reaches the store.
+
+58. **A soak has to outlive the warm-up to say anything.** The same poller measured 31.8 MiB fresh,
+    45 MiB at ten minutes and 65 MiB at fifty-five. Every one of those is a true measurement and only
+    one of them is a *footprint*. `tools/poller-soak.sh` exists so the number is quoted with its age,
+    and `docs/sizing.md` now says "a *new* poller is 32 MiB" rather than "a poller is 32 MiB".

@@ -137,7 +137,7 @@ attributes = {
     'energy.point': ('string', 'The device-side point name, for provenance back to the register map.', ['VphA', 'W']),
     'modbus.register.address': ('int', 'Absolute Modbus register address.', None),
     'modbus.register.scale_factor': ('int', 'The device scale factor applied (value = raw x 10^sf).', None),
-    'energy.device.timestamp': ('double', 'The device clock at the moment of the reading. Provenance; never a sort key (D42).', None),
+    'energy.device.timestamp': ('double', 'The device clock at the moment of the reading. Provenance, carried on spans and logs; never a metric attribute (D51) and never a sort key (D42).', None),
     'energy.receive.timestamp': ('double', 'When the collector saw the value. The only comparable clock.', None),
     'energy.bess.status.text': ('string', 'Readable battery state.', ['idle', 'charging', 'discharging', 'hold']),
     'energy.bess.hold_reason.text': ('string', 'Why the grid former stopped doing what the busbar asked.', ['none', 'soc-high', 'soc-low', 'power-limit']),
