@@ -2,3 +2,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .venv/
+
+# live measurement runs (tools/outage-measure.sh). The durable copy of a run goes to
+# docs/measurements/ once it has finished; the in-progress directory is scratch.
+outages/
