@@ -1,6 +1,6 @@
 # A two-layer OpenTelemetry collector topology for a virtual e-charging network.
 #
-#   make up        edge collectors + impaired link + hub + 3 real sites + visual stack
+#   make up        edge collectors + impaired link + hub + 4 real sites + visual stack
 #   make ps        what is running
 #   make logs      follow the hub (this is where every site's telemetry lands)
 #   make stats     live CPU/RAM of the whole stack (feeds docs/sizing.md, D10)
@@ -35,6 +35,9 @@ up:
 	@echo
 	@echo "waiting for the first telemetry to cross the impaired link..."
 	@sleep 6
+	@# The depot's link is 12 ms of fibre, not a clear one: apply its baseline the same way
+	@# `make link` would, because a toxiproxy config file cannot carry toxics (#41).
+	@$(MAKE) --no-print-directory link SITE=metro PROFILE=wet
 	@$(MAKE) --no-print-directory queues
 	@echo
 	@echo "open the map:  http://127.0.0.1:$(HMI_PORT)"
@@ -59,7 +62,7 @@ stats:
 # after recovery: the store-and-forward demonstration in one command.
 queues:
 	@printf '%-14s %9s %9s\n' "edge" "queued" "capacity"
-	@for s in rural solar wind; do \
+	@for s in rural solar wind metro; do \
 	  raw=$$(docker compose -f compose/docker-compose.yml exec -T ops \
 	        wget -qO- http://edge-$$s:8888/metrics 2>/dev/null); \
 	  sz=$$(echo "$$raw" | grep '^otelcol_exporter_queue_size' | awk '{s+=$$2} END{print s+0}'); \
@@ -70,6 +73,11 @@ queues:
 # make link SITE=rural PROFILE=degraded
 SITE ?= rural
 PROFILE ?= degraded
+
+# Which site's charge point the session targets talk to. The rural site keeps M2's service
+# name; every other site is `ocpp-cp-<site>`. One CP per site is why a bay id alone is not
+# enough to find a bay - see `session-status`, which sweeps them all.
+CP_SVC = $(if $(filter rural,$(SITE)),ocpp-cp,ocpp-cp-$(SITE))
 
 link:
 	@./impairment/link.sh $(SITE) $(PROFILE)
@@ -106,34 +114,43 @@ EVSE ?= EVSE01
 # Default exemplar query: the EVSE power data point the sag samples carry an exemplar on.
 Q ?= energy_evse_power_real_watts
 
-# Start a session on demand (EVSE01 already runs one by default, so this is mainly for
-# EVSE02, or for a demo that wants a fresh transaction).
+# Start a session on demand (EVSE01 already runs one by default, so this is mainly for EVSE02,
+# or for a demo that wants a fresh transaction).
+#   make session                    # EVSE01 at the rural site
+#   make session SITE=metro EVSE=EVSE07
 session:
-	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py start --evse $(EVSE)
+	@$(COMPOSE) exec -T $(CP_SVC) python ocpp/cpctl.py start --evse $(EVSE)
 
 session-stop:
-	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py stop --evse $(EVSE)
+	@$(COMPOSE) exec -T $(CP_SVC) python ocpp/cpctl.py stop --evse $(EVSE)
 
+# Every bay of every charge point, one row each - the rural site's two and the depot's twelve.
+# `EVSE=EVSE07` narrows it to one bay and skips the site that does not have it (cpctl exits 3,
+# which is a normal answer when a caller sweeps sites, not a failure).
 session-status:
-	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py status
+	@for svc in ocpp-cp ocpp-cp-metro; do \
+	  echo "-- $$svc --"; \
+	  $(COMPOSE) exec -T $$svc python ocpp/cpctl.py status \
+	    $(if $(EVSE),--evse $(EVSE)) || true; \
+	done
 
 # The narrative spine in one command: start a session, sag the supply, watch the EVSE
 # derate, then sag it past the contactor-drop threshold and watch the transaction fail for
 # PowerLoss. Two depths of the SAME fault - no second injection point, no authored
 # causality: the charge point is reacting to the meter it can see.
 spine:
-	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py start --evse $(EVSE)
+	@$(COMPOSE) exec -T $(CP_SVC) python ocpp/cpctl.py start --evse $(EVSE)
 	@sleep 3
 	@echo "-- 0.88 pu: inside the band, charger derates but keeps charging --"
 	@$(MAKE) --no-print-directory fault SITE=rural FAULT=voltage-sag \
 	  ARGS="--depth 0.88 --duration 25"
 	@for i in 1 2 3 4; do \
-	  $(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py status; sleep 2; \
+	  $(COMPOSE) exec -T $(CP_SVC) python ocpp/cpctl.py status; sleep 2; \
 	done
 	@echo "-- 0.78 pu: below the contactor threshold, session ends for PowerLoss --"
 	@$(MAKE) --no-print-directory fault SITE=rural FAULT=voltage-sag \
 	  ARGS="--depth 0.78 --duration 15"
-	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py watch --evse $(EVSE) --seconds 60
+	@$(COMPOSE) exec -T $(CP_SVC) python ocpp/cpctl.py watch --evse $(EVSE) --seconds 60
 
 # Did the exemplar survive the collector chain and Prometheus' OTLP receiver? Ask the
 # store. A non-empty result is the M2 payoff: a metric data point that jumps to the
@@ -147,10 +164,10 @@ exemplar:
 	  | python3 -m json.tool
 
 ocpp-logs:
-	$(COMPOSE) logs -f --no-log-prefix ocpp-cp
+	$(COMPOSE) logs -f --no-log-prefix $(CP_SVC)
 
 csms-logs:
-	$(COMPOSE) logs -f --no-log-prefix csms
+	$(COMPOSE) logs -f --no-log-prefix $(if $(filter rural,$(SITE)),csms,csms-$(SITE))
 
 device-logs:
 	$(COMPOSE) logs -f device-$(SITE)

@@ -346,6 +346,8 @@ class Evse:
         self.task: asyncio.Task | None = None
         self.stop_requested = asyncio.Event()
         self.want_start = False
+        #: The auto-session loop for this bay, created once (see ChargePoint.on_connected).
+        self.auto_task: asyncio.Task | None = None
 
     @property
     def busy(self) -> bool:
@@ -459,23 +461,37 @@ class Metrics:
 # --------------------------------------------------------------------------------------
 class ChargePoint:
     def __init__(self) -> None:
+        # Connectors are counted, not enumerated: a site with two bays and a depot with twelve
+        # differ by CP_EVSE_COUNT and nothing else (D10, and the rule that a new site is a new
+        # environment, not a new code path). Each bay gets its own idTag and vehicle id, because
+        # an OCPP transaction is per connector and two sessions sharing an idTag is not a
+        # topology a CSMS can reconcile.
+        self.evses = [
+            Evse(self, f"EVSE{n:02d}", n,
+                 _env(f"CP_ID_TAG_{n}", f"RFID-EV-{n:04d}"),
+                 _env(f"CP_VEHICLE_ID_{n}", f"VECN-EV-{n:04d}"))
+            for n in range(1, max(1, _envi("CP_EVSE_COUNT", 2)) + 1)
+        ]
         self.telemetry = setup("vecn-ocpp-cp", {
             "energy.device.kind": "charge_point",
             "energy.device.id": _env("CP_ID", "EVSE-RURAL-01"),
             "energy.device.model": _env("CP_MODEL", "VECN SIM-AC22"),
             "energy.device.protocol": "ocpp1.6j",
-            "energy.evse.count": _envi("CP_EVSE_COUNT", 2),
+            # Read back off the list, not the environment: an attribute that disagrees with the
+            # number of bays this process actually drives is a metric that lies.
+            "energy.evse.count": len(self.evses),
         })
         self.tracer = self.telemetry.tracer("vecn.ocpp-cp")
         self.monitor = SupplyMonitor()
-        self.evses = [
-            Evse(self, "EVSE01", 1, _env("CP_ID_TAG_1", "RFID-EV-0001"), "VECN-EV-0001"),
-            Evse(self, "EVSE02", 2, _env("CP_ID_TAG_2", "RFID-EV-0002"), "VECN-EV-0002"),
-        ]
         self.metrics = Metrics(self.telemetry.meter("vecn.ocpp-cp"), self.evses, self.monitor)
         self.client = OcppClient(self)
         self.loop: asyncio.AbstractEventLoop | None = None
-        self.auto_evse = _env("CP_AUTO_EVSE", "EVSE01")
+        # One bay at the rural site (unchanged default); the depot names every bay, so all
+        # twelve sessions overlap. `CP_AUTO_STAGGER_S` offsets each start, which also offsets
+        # each end - a depot whose bays all stop at the same instant is not a depot.
+        self.auto_evses = [s.strip() for s in _env("CP_AUTO_EVSE", "EVSE01").split(",")
+                           if s.strip()]
+        self.auto_stagger_s = _envf("CP_AUTO_STAGGER_S", 0.0)
         self.session_duration_s = _envf("CP_SESSION_DURATION_S", 600.0)
         self.idle_gap_s = _envf("CP_IDLE_GAP_S", 20.0)
         self.meter_interval_s = _envf("CP_METER_INTERVAL_S", 10.0)
@@ -507,12 +523,22 @@ class ChargePoint:
                         "timestamp": _iso(),
                     })
 
-        if self.auto_evse:
-            for evse in self.evses:
-                if evse.evse_id == self.auto_evse:
-                    asyncio.create_task(self._auto_loop(evse))
+        for index, evse_id in enumerate(self.auto_evses):
+            evse = self.evse_by_id(evse_id)
+            if evse is None:
+                LOG.warning("CP_AUTO_EVSE names an EVSE this charge point does not have: %s",
+                            evse_id)
+                continue
+            # One loop per bay, created once. `on_connected` runs again after every reconnect,
+            # and without this guard a flapping CSMS link starts a second loop for every bay;
+            # two loops racing over one EVSE is exactly how a bay ends up with two transactions
+            # and another bay's meter values.
+            if evse.auto_task is not None:
+                continue
+            evse.auto_task = asyncio.create_task(
+                self._auto_loop(evse, delay=index * self.auto_stagger_s))
 
-    async def _auto_loop(self, evse: Evse) -> None:
+    async def _auto_loop(self, evse: Evse, delay: float = 0.0) -> None:
         """Keep one EVSE busy so `make up` ends in a live session, and the demo repeats.
 
         After a session ends it waits the idle gap and refuses to start while the supply is
@@ -520,7 +546,7 @@ class ChargePoint:
         cut, and it produced three failed transactions in twenty seconds - a charge point
         that retries into a fault is not something an operator would accept.
         """
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(2.0 + delay)
         while True:
             if not evse.busy:
                 await asyncio.sleep(self.idle_gap_s)
@@ -763,8 +789,6 @@ class ChargePoint:
             pass
         LOG.info("session on %s finished: reason=%s energy=%.3f kWh", evse.evse_id,
                  stop_reason, energy_kwh)
-        if not evse.stop_requested.is_set() and evse.evse_id != self.auto_evse:
-            pass
         # An auto EVSE restarts after the idle gap; _auto_loop owns that timing.
 
     async def _meter_values(self, evse: Evse, tx_id: int, cumulative_kwh: float,
@@ -849,7 +873,8 @@ class _ControlHandler(BaseHTTPRequestHandler):
     def _target(self) -> tuple[Any, str]:
         cp: ChargePoint = self.server.cp  # type: ignore[attr-defined]
         query = parse_qs(urlparse(self.path).query)
-        evse = cp.evse_by_id(query.get("evse", [_env("CP_AUTO_EVSE", "EVSE01")])[0])
+        default = cp.auto_evses[0] if cp.auto_evses else "EVSE01"
+        evse = cp.evse_by_id(query.get("evse", [default])[0])
         return cp, evse
 
     def do_GET(self):  # noqa: N802

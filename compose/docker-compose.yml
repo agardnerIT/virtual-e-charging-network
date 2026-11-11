@@ -23,6 +23,11 @@
 # farm a six-turbine SunSpec-shaped device, both behind the same poller and the same image as the
 # rural meter (M1b part 2).
 #
+# Four sites (M3-1): the rural charging site, the two generation sites, and a metro depot whose
+# twelve bays run overlapping sessions on one charge point over a good fibre link. The depot is the
+# same image, the same poller and the same edge config as the rural site - it differs by scale and
+# by environment, which is the whole claim (D10,D37).
+#
 # Three sites, so that fan-in is visible from the first command.
 
 name: otel-ot
@@ -51,6 +56,7 @@ networks:
   ot-rural: {}   # site 3, OT zone
   ot-solar: {}   # solar farm, OT zone
   ot-wind: {}    # wind farm, OT zone
+  ot-metro: {}   # metro depot, OT zone
   wan: {}        # the impaired link between site and NOC
   noc: {}        # NOC / IT zone
 
@@ -58,6 +64,7 @@ volumes:
   edge-rural-queue: {}
   edge-solar-queue: {}
   edge-wind-queue: {}
+  edge-metro-queue: {}
   prometheus-data: {}
 
 services:
@@ -416,3 +423,103 @@ services:
       NOMINAL_VOLTAGE: "398"
     depends_on: [device-wind, edge-wind]
     networks: [ot-wind]
+
+  # ---- metro depot: twelve bays, one charge point, a good link (M3-1) --------------
+  # The site where two EVSE series become twelve. Everything here is the rural charging
+  # site's block with different environment: same images, same poller, same edge config
+  # (D10). What changes is the link (10-20 ms fibre, not a 4G backhaul) and the number of
+  # bays - which is the point: the depot is the site that stresses cardinality, and D36
+  # (EVSE metrics carry only EVSE-stable attributes) is what it has to survive.
+  edge-metro:
+    <<: *collector
+    user: "0:0"   # image runs as 10001, but the disk-backed queue is a root-owned volume
+    environment:
+      SITE_ID: metro-tottenham
+      SITE_NAME: Tottenham Metro Depot
+      SITE_KIND: charging_site
+      SITE_LAT: "-37.8016"
+      SITE_LON: "144.8560"
+      HUB_ENDPOINT: toxiproxy:14320
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+      - edge-metro-queue:/var/lib/otelcol/queue
+    depends_on: [toxiproxy]
+    networks: [ot-metro, wan]
+
+  device-metro:
+    <<: *sim
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_ID: meter-metro-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_PORT: "5020"
+      HTTP_PORT: "8080"
+      # A depot has a comms room and an NTP server, so its clock is nearly right: 1 s behind.
+      # Clock skew is M3-4's demonstration, at the rural site where it is also plausible.
+      DEVICE_CLOCK_SKEW_S: "-1"
+      NOMINAL_VOLTAGE: "230"
+      ENERGY_BASE_KWH: "128640.7"
+      WORD_ORDER: low
+    networks: [ot-metro]
+
+  poller-metro:
+    <<: *sim
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_ID: meter-metro-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_HOST: device-metro
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-metro:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "230"
+    depends_on: [device-metro, edge-metro]
+    networks: [ot-metro]
+
+  # The CSMS is a test double and a central system in principle, but it lives in the site's
+  # OT zone for the same reason the rural one does (D34, D10's budget). A second instance
+  # rather than one shared CSMS keeps the two OT zones disjoint, which is the property the
+  # whole repo is about; docs/standards.md says so out loud.
+  csms-metro:
+    <<: *sim
+    command: ["python", "ocpp/csms.py"]
+    environment:
+      CSMS_PORT: "9000"
+      HTTP_PORT: "9001"
+      CSMS_ID: csms-metro-01
+      OTLP_ENDPOINT: "http://edge-metro:4318"
+      CSMS_BLOCKED_ID_TAGS: "BLOCKED-0000"
+      CSMS_HEARTBEAT_INTERVAL_S: "60"
+    depends_on: [edge-metro]
+    networks: [ot-metro]
+
+  ocpp-cp-metro:
+    <<: *sim
+    command: ["python", "ocpp/cp.py"]
+    environment:
+      CP_ID: EVSE-METRO-01
+      CP_MODEL: VECN SIM-AC22
+      # Twelve bays on ONE charge point: OCPP 1.6 is per-connector, so this is a legal shape
+      # (a power cabinet with twelve outlets) and it keeps the concurrency in one process
+      # where a crossed transactionId would be visible. Twelve separate charge points would
+      # need twelve WebSockets and would hide the bug in the network instead.
+      CP_EVSE_COUNT: "12"
+      CSMS_URL: "ws://csms-metro:9000/ocpp/EVSE-METRO-01"
+      HTTP_PORT: "8080"
+      SUPPLY_MODBUS_HOST: device-metro
+      SUPPLY_MODBUS_PORT: "5020"
+      SUPPLY_MODBUS_UNIT_ID: "1"
+      SUPPLY_POLL_INTERVAL_MS: "1000"
+      OTLP_ENDPOINT: "http://edge-metro:4318"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      # Every bay runs a session, started 15 s apart: twelve concurrent transactions within
+      # three minutes of `make up`, and ends staggered too because the duration is fixed.
+      CP_AUTO_EVSE: "EVSE01,EVSE02,EVSE03,EVSE04,EVSE05,EVSE06,EVSE07,EVSE08,EVSE09,EVSE10,EVSE11,EVSE12"
+      CP_AUTO_STAGGER_S: "15"
+      CP_SESSION_DURATION_S: "600"
+      CP_IDLE_GAP_S: "20"
+      CP_METER_INTERVAL_S: "10"
+    depends_on: [device-metro, csms-metro, edge-metro]
+    networks: [ot-metro]

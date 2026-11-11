@@ -7,11 +7,11 @@ The point is not the electricity. The point is that **OpenTelemetry is useful fa
 monitoring** — and that the OpenTelemetry Collector is the natural boundary between operational
 technology (OT) and IT.
 
-Status: **M2 complete** — the collector topology runs (M0), three sites carry real OT data on one
-device image (a SunSpec meter, a SunSpec inverter with two MPPT trackers, and a six-turbine wind
-farm), a **charging session is a trace** (M2), and there is a visual layer fed from the pipeline: a
-map of Australia with every site's live state, drilling down to a one-line mimic per site. Decisions
-and roadmap live in [`plan.md`](plan.md); domain background in [`docs/ot-primer.md`](docs/ot-primer.md);
+Status: **M3 in progress — metro depot done** — the collector topology runs (M0), four sites carry
+real OT data on one device image (a SunSpec meter, a SunSpec inverter with two MPPT trackers, a
+six-turbine wind farm, and a twelve-bay depot), a **charging session is a trace** (M2), and there is
+a visual layer fed from the pipeline: a map of Australia with every site's live state, drilling down
+to a one-line mimic per site. Decisions and roadmap live in [`plan.md`](plan.md); domain background in [`docs/ot-primer.md`](docs/ot-primer.md);
 which standard each device and protocol claims, and how faithfully, in [`docs/standards.md`](docs/standards.md);
 measured numbers in [`docs/sizing.md`](docs/sizing.md); hard-won gotchas in [`docs/findings.md`](docs/findings.md); work items are tracked as [GitHub issues](https://github.com/agardnerIT/virtual-e-charging-network/issues?q=is%3Aissue), with the current milestone in [`NEXT.md`](NEXT.md).
 
@@ -25,10 +25,11 @@ are regenerated from it. Solid borders are running today, dashed are planned.
 ```
 make up        # the whole stack, ending in a picture: http://127.0.0.1:8091
 make logs      # follow the hub: this is where every site's telemetry lands
-make stats     # CPU/RAM of the whole stack (~830 MiB, three sites, two OCPP containers)
-make queues    # are the edge disk queues draining
+make stats     # CPU/RAM of the whole stack (~1.07 GiB, four sites, twelve live bays)
+make queues    # are the edge disk queues draining (four edges)
 make hmi       # open the map
-make session-status   # the charge point: supply voltage, both EVSEs, live transaction
+make session-status            # every bay of every charge point: supply, state, kW, A, tx, kWh
+make session-status SITE=metro EVSE=EVSE07    # one bay at the depot
 make spine     # voltage sag -> charger derate -> failed session, in one command
 make prom Q='count by (__name__) ({__name__=~"energy.*"})'   # PromQL, through the ops box
 make clean     # stop and delete everything, including buffered telemetry
@@ -157,6 +158,45 @@ measured on 3.1.0 and 3.8.1, with the collectors bypassed. The join that works t
 `ocpp.transaction.id`, which is on the span, on every OCPP log line and on `energy.session.energy`.
 See plan.md D33.
 
+## The metro depot: twelve bays, twelve concurrent sessions (M3-1)
+
+The fourth site is where the demo stops being a demo. Same images, same poller, same edge collector
+config, same charge point code — the difference is scale (12 connectors instead of 2) and
+environment (a 12 ms fibre backhaul instead of a 4G link):
+
+```
+   [SunSpec/Modbus meter]  <-poll--  [charge point, 12 connectors]  --OCPP 1.6J/WS-->  [CSMS double]
+        device-metro              ocpp-cp-metro                                   csms-metro
+                                            |
+                                            +--OTLP/HTTP-->  [edge-metro] --12 ms WAN-->  hub
+```
+
+Every bay runs a session, started 15 s apart, so twelve transactions are live within three minutes
+of `make up` and their ends are staggered too. What the depot is *for* is the two things that only
+concurrency and cardinality can break:
+
+- **One session is still one trace.** Checked while twelve were running: every trace carries exactly
+  one `energy.evse.id`, one `ocpp.transaction.id`, one `energy.session.id` and one connector, every
+  `MeterValues` child carries its own transaction, and the CSMS's connector→transaction map agrees
+  with Jaeger's 12-for-12. No 600 s session's spans appear in a sibling's trace.
+- **Series scale with bays, not with sessions.** 72 EVSE series for 12 bays (6 per bay: power,
+  offered current, state, three phase voltages) plus one `energy.session.energy` series per live
+  transaction. Measured before (2 bays) and after (12) in [`docs/sizing.md`](docs/sizing.md).
+
+```bash
+make session-status SITE=metro          # twelve rows: state, kW, offered A, tx, session kWh
+make session-status SITE=metro EVSE=EVSE07
+make prom Q='count by (__name__) ({__name__=~"energy_evse.*",energy_site_id="metro-tottenham"})'
+make link SITE=metro PROFILE=down       # the depot's own link: 12 ms +- 4 ms when wet
+```
+
+The mimic is the same drawing as the rural site's with a different number of bays: the sites
+reported in the pipeline decide how many cells there are, and the bays are a table on an LV board
+rather than twelve boxes on a busbar. What the depot does **not** claim is written down in
+[`docs/standards.md`](docs/standards.md): one CP with twelve connectors (not twelve CPs), no load
+sharing between connectors, a CSMS instance per site to keep the OT zones disjoint, and a site meter
+whose load is its own model rather than the sum of the bays.
+
 ## What the pipeline shows
 
 - **Two layers, and only two** (D16). Edge collectors fan in to one hub — the standard OTel
@@ -179,7 +219,9 @@ origin and never talks to the store directly.
 - **The map** places every site from the attributes the edge collector stamps — `energy.site.id`,
   `energy.site.kind`, `geo.latitude`, `geo.longitude` — so it needs no knowledge of the sites.
 - **The mimic** is a one-line diagram, and it is a different one per regime: a load site is grid →
-  CB1 → transformer → busbar → meter with live per-phase voltage, current and power in place; a solar
+  CB1 → transformer → busbar → meter with live per-phase voltage, current and power in place, with
+  every bay on an LV board beneath it (2 cells at the rural site, 12 at the depot — same drawing,
+  count read from the pipeline); a solar
   farm is arrays → MPPT trackers → inverter → step-up → grid with irradiance, DC and AC values; a
   wind farm is six turbines on a collector bus → step-up → grid. There is no per-phase real power on
   the inverter (model 103 only carries total W), so the diagram shows the total rather than
@@ -222,6 +264,7 @@ Thin end-to-end first, then thick (plan.md §9). M1 made the voltage sag and bot
 real. **M2 is complete**: a charging session is one trace, the charge point measures the sag over
 Modbus and fails the transaction for `PowerLoss`, OCPP frames are trace-correlated logs, and the
 rural mimic's EVSEs are live. The metric-exemplar leg is emitted and carried but not stored by
-Prometheus — a measured finding (D33), not a claim. **M3** adds the hard cases: a metro depot with
-concurrent sessions, an isolated microgrid, a multi-hour store-and-forward outage measured rather
-than projected, and a clock-skew demo where an effect appears before its cause.
+Prometheus — a measured finding (D33), not a claim. **M3** adds the hard cases, and the first is
+in: a metro depot with twelve bays and twelve concurrent sessions, measured for cardinality. Still
+to come: an isolated microgrid, a multi-hour store-and-forward outage measured rather than
+projected, and a clock-skew demo where an effect appears before its cause.

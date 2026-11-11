@@ -16,5 +16,11 @@
     "listen": "0.0.0.0:14319",
     "upstream": "hub:4317",
     "enabled": true
+  },
+  {
+    "name": "metro-wan",
+    "listen": "0.0.0.0:14320",
+    "upstream": "hub:4317",
+    "enabled": true
   }
 ]

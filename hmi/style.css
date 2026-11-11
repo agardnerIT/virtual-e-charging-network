@@ -305,6 +305,27 @@ body {
 .val.q-comms-lost { fill: var(--bad); }
 .val.q-unknown { fill: var(--ink-2); }
 
+/* The bay board (M3-1). A depot has twelve bays and the rural site two, so a bay is a cell in a
+   table fed from the LV board rather than a box hanging off the busbar. Same asset rectangle,
+   same value markup, same quality colours as every other value on the page - only the type
+   scale is smaller, which is why this is CSS and not a second way of drawing an EVSE. */
+.bay .val      { font-size: 16px; }
+.bay .val-unit { font-size: 11px; }
+.bay-tag {
+  font-family: var(--num);
+  font-weight: 600;
+  font-size: 14px;
+  fill: var(--ink);
+  letter-spacing: .04em;
+}
+.bay-state { font-family: var(--ui); font-size: 13px; fill: var(--ink-2); }
+.bay-state.q-stale      { fill: var(--stale); }
+.bay-state.q-comms-lost { fill: var(--bad); }
+.bay-state.q-unknown    { fill: var(--ink-3); }
+.bay-small { font-family: var(--ui); font-size: 12px; fill: var(--ink-2); }
+.bay-small .val      { font-size: 12px; }
+.bay-small .val-unit { font-size: 10px; }
+
 .phase-L1 { stroke: var(--l1); }
 .phase-L2 { stroke: var(--l2); }
 .phase-L3 { stroke: var(--l3); }

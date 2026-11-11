@@ -5,12 +5,12 @@ arm64 only. Every number below was measured by running the stack. Re-run `make s
 change that affects the footprint and update this file.
 
 **Host:** Apple M2, 8 GB, arm64 (Docker Desktop, `arm64` images only).
-**Stack:** M2 — 3 edge collectors (rural, solar, wind), 1 hub, the impaired link,
+**Stack:** M3 — 4 edge collectors (rural, solar, wind, metro), 1 hub, the impaired link,
 the rural SunSpec/Modbus meter + poller, the solar SunSpec/Modbus inverter + poller, the
-wind farm's SunSpec-shaped 6-turbine device + poller (all three devices and all three pollers
-are the *same image*), the OCPP 1.6J charge point and CSMS test double in the rural OT zone,
-plus the local visual stack (Prometheus, Jaeger, our own HMI). `telemetrygen` is gone from the
-default path.
+wind farm's SunSpec-shaped 6-turbine device + poller, the depot's meter + poller (all four
+devices and all four pollers are the *same image*), two OCPP 1.6J charge points (2 bays rural,
+12 bays depot) with a CSMS test double per site, plus the local visual stack (Prometheus,
+Jaeger, our own HMI). `telemetrygen` is gone from the default path.
 
 ## Two numbers, and why both are here
 
@@ -26,6 +26,51 @@ was mapping of `libgrpc`/`libssl`.
 The M1a version of this file quoted the poller at 33 MiB. That figure was not wrong — it was a
 *fresh-boot* number presented as a steady state. The poller's steady state at the time was
 208 MiB. See "Poller memory" below.
+
+## Twelve bays: the cardinality a depot was built to expose (M3-1)
+
+`plan.md` §12 and D25 warn that a per-session attribute on a metric mints a series per session.
+The depot is the site that makes that warning real: two EVSE series sets became twelve, and every
+bay is billing-grade cardinality that Prometheus flattens into series identity.
+
+Measured the same way both times — PromQL against the OTLP-fed store, with the stack settled, every
+edge queue at 0 and every bay charging (`make prom Q='count({__name__=~"energy_evse.*"})'`). "Before"
+is the three-site M2 stack with the rural site's two bays; "after" is the four-site M3 stack with
+the depot's twelve also live, measured on a store that had just come up from `make clean && make up`.
+**Measurement: PromQL counts of series in Prometheus**, not `docker stats` and not `VmRSS` — this is
+a store-cardinality number, not a memory number.
+
+| | before (3 sites, 2 bays) | after (4 sites, 12 bays) |
+|---|---|---|
+| `energy_evse.*` series, all sites | 13 | 97 |
+| — of which the depot | — | 84 |
+| `energy_session.energy` series | 2 | 13 |
+| all `energy_*` series carrying a site id | 173 | 297 |
+| `prometheus_tsdb_head_series` | 897 | 895 |
+
+The last row is in the table because it is the number everyone reaches for, and it is the one that
+**cannot be read as a delta**: it counts every series in the store including Prometheus' own,
+`target_info`, and every replica left behind by a container that has since restarted. Both readings
+were taken about ten minutes into a running stack, but the "before" store had been up for half an
+hour and the "after" one was fresh, so the two cancel out into noise. The honest deltas are the
+first three rows; the EVSE series count does not depend on how old the store is.
+
+The arithmetic, because it is the useful part: **six series per bay** (power, offered current,
+state, and one voltage per phase) and **one series per live transaction** for
+`energy.session.energy`. Twelve bays therefore cost 72 + 12 = 84 series, and that is what a bay
+costs, no matter how many sessions run through it — the idTag, the vehicle id, the session id and
+the transaction id ride on spans and logs, not on the gauges (D36). Only `energy.session.energy`
+carries `ocpp.transaction.id`, by design and by exception, and it is why 12 bays produce 12 new
+series every 10-minute session cycle (they age out 5 minutes after the transaction stops, so the
+steady state is ~24 for the depot, not 12 × forever).
+
+Two details worth knowing before you read the numbers back:
+
+- `energy_evse_state_ratio` reads 27 for 14 bays, because `energy.evse.state.text` is a bounded
+  attribute (Available / Preparing / Charging / Finishing): a bay that has just changed state holds
+  both series for the staleness window, so 12 bays × 2 states + the rural site's 3 = 27. Bounded is
+  the point — an unbounded text attribute would have behaved like the `energy.receive.timestamp`
+  disaster above. Read this number on a stack that has just settled and it will be lower.
 
 ## Runtime footprint
 
@@ -50,6 +95,31 @@ Measured on `make up`, 2026-10-15, with all three generation/load sites real and
 | `jaeger` | trace store (v2 — itself an OTel collector distribution) | 12.5 MiB |
 | `hmi` | nginx serving the map + mimic | 3.9 MiB |
 | **Total** | | **≈749 MiB (0.73 GiB)** |
+
+### M3 delta: the fourth site (2026-11-11, `docker stats`)
+
+A fourth site is a collector, a meter and its poller, a charge point and a CSMS double. Measured on
+the full four-site stack with 12 concurrent sessions, `make stats`:
+
+| Component | Purpose | `docker stats` |
+|---|---|---|
+| `edge-metro` | edge collector, depot (OT zone) | 57.0 MiB |
+| `device-metro` | depot sink meter | 21.6 MiB |
+| `poller-metro` | same poller, `DEVICE_KIND=meter` | 38.3 MiB |
+| `ocpp-cp-metro` | one charge point, 12 connectors, 12 live sessions | 34.4 MiB |
+| `csms-metro` | CSMS test double for the depot | 35.0 MiB |
+| **Total, whole stack** (21 containers) | | **1 094 MiB (1.07 GiB)** |
+
+Three things in that table are worth saying out loud. The depot's **charge point costs the same as
+the rural one** (34 vs 37 MiB) while driving six times the sessions: twelve asyncio session loops
+and 72 gauge data points every 5 s are nothing next to the Python interpreter. The **second CSMS**
+is the price of keeping the two OT zones disjoint (a shared CSMS would have to be on both). And
+`edge-rural` at 217 MiB is the *disk-backed queue volume's* page cache after hours of use, not a
+leak — it is unchanged from M2 and it is the one number in this table that is not steady state.
+
+So the whole four-site stack is **1 094 MiB**: 230 MiB more than the three-site number above, of
+which ~57 MiB is the fourth site's collector and ~6 MiB per OCPP pair. Still comfortably inside
+D10's 3 GB, with 1.9 GB left for the real backend recipes.
 
 ### M2 delta, measured 2026-10-15 with `docker stats`
 

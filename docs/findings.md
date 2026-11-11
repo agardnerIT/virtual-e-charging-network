@@ -177,3 +177,29 @@ code or config.
 
 40. **An unused build dependency is still a broken pin.** `x-generator` is kept but profiled; if
     `telemetrygen` is ever used again, remember its image has no shell and every metric is `gen`.
+
+41. **toxiproxy's config file declares proxies, not toxics.** Adding a `toxics` array to a proxy in
+    `impairment/toxiproxy.json` is accepted and **silently ignored** by 2.11.0 — the proxy comes up
+    with `"toxics": []` and the link you thought was 12 ms is a clean one. A site's good-link
+    baseline therefore belongs in `impairment/link.sh` (`PROFILE=wet`), and `make up` applies it. Check
+    with `make profiles`, which prints the toxics array, not with the compose file.
+
+42. **Twelve bays next to a 13 kW meter is how a gap becomes visible.** The site meter and the charge
+    points are independent models (no power-flow model exists), which was tolerable with one 22 kW
+    bay and is glaring with twelve at 260 kW. Nothing was faked to close it: `docs/standards.md` §5
+    says the meter is its own load and §6 adds power flow to the not-claimed list. The lesson is the
+    general one — **a second instance of an asset is an audit of the first**, and M3's whole job is
+    to add instances.
+
+43. **A slot with two directions needs the direction to bind it.** `energy.meter.energy` arrives twice
+    (import and export registers) under one slot name, so the mimic's instrument panel picked
+    whichever series Prometheus returned first — the depot's 128 MWh read as the static 12 kWh export
+    register. `bound()` now takes a `direction`, and the lesson is that the point key already had
+    it: `keyOf()` includes direction for exactly this reason, and the *drawing* code was the part
+    that had forgotten.
+
+44. **A session trace is incomplete until the session ends, so verify concurrency from the spans that
+    exist.** The root span (and therefore `energy.evse.id`, which only rides on roots and sag spans)
+    lands at the end of a 600 s transaction (see #29). While twelve sessions were live, the check that
+    worked was: one `ocpp.transaction.id` per trace, and the CSMS's own connector→transaction map as
+    the independent authority. Both agreed (12/12) before any root had arrived.

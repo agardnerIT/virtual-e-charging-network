@@ -157,7 +157,9 @@ const TEMPLATES = {
   charging_site: {
     summary: 'site load',
     sign: 1,   // meter convention: positive real power = import = load
-    assets: ['GRID', 'CB1', 'TX1', 'BUSBAR', 'M1', 'EVSE01', 'EVSE02'],
+    // The bays are NOT listed here: the mimic draws one cell per EVSE the pipeline actually
+    // reports, so a two-bay rural site and a twelve-bay depot are the same drawing (M3-1).
+    assets: ['GRID', 'CB1', 'TX1', 'BUSBAR', 'M1', 'EVSEn'],
     evse: true,
   },
   solar_farm: {
@@ -182,6 +184,7 @@ const LABEL_OFFSET = {
   'rural-brokenhill': { dx: -26, dy: -20, anchor: 'end' },    // inland, away from Mildura
   'solar-mildura':    { dx: 30,  dy: 30,  anchor: 'start' },  // down toward the Murray
   'wind-snowtown':    { dx: -30, dy: 34,  anchor: 'end' },    // south-west, clear of both
+  'metro-tottenham':  { dx: 34,  dy: 4,   anchor: 'start' },  // out to the west of Melbourne
 };
 
 const state = {
@@ -588,6 +591,10 @@ function bound(siteId, slot, phase, opts = {}) {
     if (opts.plane !== undefined && (p.plane || null) !== opts.plane) continue;
     if (opts.turbine !== undefined && (p.turbine || null) !== opts.turbine) continue;
     if (opts.evse !== undefined && (p.evse || null) !== opts.evse) continue;
+    // The site meter keeps separate import and export registers under one slot; without this
+    // the panel picked whichever series came back first and the depot's 128 MWh could read as
+    // the static 12 kWh export register. Direction is part of a point's identity.
+    if (opts.direction !== undefined && (p.direction || null) !== opts.direction) continue;
     return p;
   }
   return null;
@@ -617,10 +624,13 @@ function rawOf(siteId, slot, phase, opts = {}) {
 }
 
 /* A cumulative register in GWh: 44 308 442 kWh is unreadable in place, and truncating it
-   would hide that it is a lifetime counter, not a session figure. */
+   would hide that it is a lifetime counter, not a session figure. Below 1 GWh it reads in
+   MWh, because "0.13 GWh" throws away more precision than a 128 MWh depot register deserves. */
 function gwhText(p) {
   if (!p) return '<tspan class="val val-absent">\u2014</tspan>';
-  return `<tspan class="val q-${pointState(p)}">${fmt(p.value / 1e6, 2)}</tspan><tspan class="val-unit"> GWh</tspan>`;
+  const gwh = p.value / 1e6;
+  const [v, unit] = gwh >= 1 ? [gwh, 'GWh'] : [p.value / 1e3, 'MWh'];
+  return `<tspan class="val q-${pointState(p)}">${fmt(v, gwh >= 1 ? 2 : 1)}</tspan><tspan class="val-unit"> ${unit}</tspan>`;
 }
 
 /* A text-valued state (SunSpec status, curtailment reason) with the same quality treatment
@@ -632,6 +642,18 @@ function textOf(siteId, slot, opts = {}) {
   const q = pointState(p);
   if (!text) return { html: `<tspan class="val val-absent">${fmt(p.value, 0)}</tspan>`, quality: q, point: p };
   return { html: `<tspan class="val q-${q}">${text}</tspan>`, quality: q, point: p };
+}
+
+/* Every bay this site reports. Read from the data, not from a template: a two-bay rural site
+   and a twelve-bay depot must be the same drawing with a different number of cells, which is
+   what "the difference between sites is environment and scale, not code paths" has to mean
+   for the HMI too. A bay with no live series is simply absent - the mimic never invents one. */
+function evseIdsFor(siteId) {
+  const ids = new Set();
+  for (const p of state.points.values()) {
+    if (p.labels.energy_site_id === siteId && p.evse) ids.add(p.evse);
+  }
+  return [...ids].sort((a, b) => a.localeCompare(b, 'en-AU', { numeric: true }));
 }
 
 function renderMimic(site) {
@@ -658,7 +680,7 @@ function renderMimic(site) {
   const V1 = v('voltage', 'L1'), V2 = v('voltage', 'L2'), V3 = v('voltage', 'L3');
   const I1 = v('current', 'L1'), I2 = v('current', 'L2'), I3 = v('current', 'L3');
   const P1 = v('power', 'L1'), P2 = v('power', 'L2'), P3 = v('power', 'L3');
-  const F = v('frequency'), PF = v('pf'), E = v('energy'), T = v('temperature');
+  const F = v('frequency'), PF = v('pf'), T = v('temperature');
 
   // Generation sites flow the other way: source on the left, grid on the right.
   const parts = [];
@@ -704,34 +726,54 @@ function renderMimic(site) {
   parts.push(`<text class="note" x="580" y="374" text-anchor="end">A</text>`);
   parts.push(`<text class="note" x="650" y="374" text-anchor="end">kW</text>`);
 
-  // ---- EVSE taps, or the generation source ---------------------------------
-  // M2 fills these in from the pipeline. Each box is an OCPP charge point: its state is a
-  // real charge point status, its power is what it is actually delivering, and the
-  // offered current is the number that falls when the supply sags. Session energy is the
-  // only per-transaction series in the table, and it is why the box resets when the
-  // transaction ends rather than accumulating forever.
+  // ---- the bay board, or the generation source ------------------------------
+  // M2 filled in two boxes hanging off the busbar. Two is not what a depot has: twelve boxes
+  // on one row would be unreadable and twelve on two rows would not fit. So each bay is a
+  // cell in a table fed from an LV board - the same asset rectangle, the same value markup and
+  // the same quality colours as everywhere else on the page, at the type size a cell can
+  // carry. Nothing here knows how many bays there are; `evseIdsFor` asks the pipeline.
   if (tpl.evse) {
-    ['EVSE01', 'EVSE02'].forEach((tag, i) => {
-      const x = 710 + i * 120;
+    const bays = evseIdsFor(site.id);
+    const MAX_BAYS = 12;          // two rows of six; beyond that the board would leave the frame
+    const COLS = 6;
+    const boardY = 412;
+    const cellW = 126, cellH = 66, pitch = 136, left = 60;
+
+    parts.push(`<line class="conductor" x1="866" y1="${spine}" x2="866" y2="${boardY}"/>`);
+    parts.push(`<line class="busbar" x1="${left}" y1="${boardY}" x2="866" y2="${boardY}"/>`);
+    parts.push(`<text class="tag" x="${left}" y="${boardY - 16}">LV BOARD 400 V</text>`);
+    // Left of the instrument panel: right-anchored, this line lands on top of it.
+    parts.push(`<text class="note" x="320" y="${boardY - 16}">` +
+      `${bays.length} bay${bays.length === 1 ? '' : 's'} \u00b7 OCPP 1.6J</text>`);
+    // The column legend is a caption under the board, once, instead of in every cell: a bay
+    // cell has 126 units of width and the sag story needs the offered current to fit in it.
+    parts.push(`<text class="note" x="${left}" y="${boardY + 26 + Math.ceil(Math.min(bays.length, MAX_BAYS) / COLS) * (cellH + 8)}">` +
+      `per bay: kW \u00b7 A offered \u00b7 session kWh \u00b7 one trace per session</text>`);
+
+    bays.slice(0, MAX_BAYS).forEach((tag, i) => {
+      const x = left + (i % COLS) * pitch;
+      const y = boardY + 18 + Math.floor(i / COLS) * (cellH + 8);
       const P = valueOf(site.id, 'evse_power', null, { evse: tag });
-      const A = valueOf(site.id, 'evse_offered', null, { evse: tag });
-      const E = valueOf(site.id, 'session_energy', null, { evse: tag });
-      const S = textOf(site.id, 'evse_state', { evse: tag });
-      const live = !!S.point;
-      parts.push(`<line class="conductor-thin" x1="${x}" y1="${spine}" x2="${x}" y2="206"/>`);
-      parts.push(`<rect class="${live ? 'asset' : 'asset-off'}" x="${x - 46}" y="206" width="92" height="44"/>`);
-      parts.push(`<text class="tag" x="${x}" y="234" text-anchor="middle">${tag}</text>`);
-      parts.push(`<text x="${x}" y="276" text-anchor="middle">${S.html}</text>`);
-      parts.push(`<text x="${x}" y="298" text-anchor="middle">${P.html}</text>`);
-      parts.push(`<text class="note" x="${x}" y="318" text-anchor="middle">offered ${A.html}</text>`);
-      parts.push(`<text class="note" x="${x}" y="336" text-anchor="middle">session ${E.html}</text>`);
+      const A = rawOf(site.id, 'evse_offered', null, { evse: tag });
+      const E = rawOf(site.id, 'session_energy', null, { evse: tag });
+      const S = bound(site.id, 'evse_state', null, { evse: tag });
+      const q = S ? pointState(S) : 'unknown';
+      // The state word comes from the edge collector, not from a code->word table here.
+      const state = S ? (S.labels[S.def.text] || fmt(S.value, 0)) : 'no data';
+      parts.push(`<line class="conductor-thin" x1="${x + cellW / 2}" y1="${boardY}" x2="${x + cellW / 2}" y2="${y}"/>`);
+      parts.push(`<g class="bay">`);
+      parts.push(`<rect class="${S && q === 'good' ? 'asset' : 'asset-off'}" x="${x}" y="${y}" width="${cellW}" height="${cellH}"/>`);
+      parts.push(`<text class="bay-tag" x="${x + 9}" y="${y + 18}">${tag}</text>`);
+      parts.push(`<text class="bay-state q-${q}" x="${x + cellW - 9}" y="${y + 18}" text-anchor="end">${state}</text>`);
+      parts.push(`<text x="${x + 9}" y="${y + 41}">${P.html}</text>`);
+      // Terse on purpose: 126 units of width, and "3.011 kWh" already fills a third of it.
+      parts.push(`<text class="bay-small" x="${x + 9}" y="${y + 58}">${A.html}A \u00b7 ${E.html}kWh</text>`);
+      parts.push(`</g>`);
     });
-    parts.push(`<text class="note" x="770" y="366" text-anchor="middle">OCPP 1.6J \u00b7 one session, one trace</text>`);
-  } else {
-    const src = site.kind === 'wind_farm' ? 'WTG1..n' : 'PV arrays';
-    const conv = site.kind === 'wind_farm' ? 'turbines' : 'INV1';
-    parts.push(`<text class="note note-absent" x="770" y="302" text-anchor="middle">${src} \u2192 ${conv}</text>`);
-    parts.push(`<text class="note note-absent" x="770" y="322" text-anchor="middle">not instrumented yet</text>`);
+    if (bays.length > MAX_BAYS) {
+      parts.push(`<text class="note note-absent" x="866" y="${boardY + 26 + 2 * (cellH + 8)}" text-anchor="end">` +
+        `${bays.length - MAX_BAYS} more bays not drawn</text>`);
+    }
   }
 
   // ---- the boundary the whole repo is about ---------------------------------
@@ -745,17 +787,25 @@ function renderMimic(site) {
   parts.push(`<text class="note" x="990" y="216" text-anchor="middle">over the impaired link</text>`);
 
   // ---- the instrument strip -------------------------------------------------
+  // Four site-meter quantities that are not per phase, so they do not belong in the phase
+  // table above. The M2 layout put them in the band the bay board now needs; they move to a
+  // panel of their own right of the meter, which is also where a reader looks for them.
   const strip = [
     ['f', F, 'system frequency'],
     ['PF', PF, 'displacement factor'],
-    ['E', E, 'cumulative register'],
+    // A lifetime register in kWh does not fit a 160-wide panel (and 42 917 342 kWh is
+    // unreadable in place); GWh is the unit this is read in.
+    ['E', { html: gwhText(bound(site.id, 'energy', null, { direction: 'import' })) },
+      'import register'],
     ['\u03b8', T, 'enclosure temperature'],
   ];
+  parts.push(`<rect class="asset" x="690" y="212" width="160" height="176"/>`);
+  parts.push(`<text class="note" x="690" y="202">site meter \u00b7 not per phase</text>`);
   strip.forEach(([sym, val, note], i) => {
-    const y = 430 + i * 38;
-    parts.push(`<text class="tag" x="310" y="${y}">${sym}</text>`);
-    parts.push(`<text x="380" y="${y}">${val.html}</text>`);
-    parts.push(`<text class="note" x="560" y="${y}">${note}</text>`);
+    const y = 246 + i * 40;
+    parts.push(`<text class="tag" x="704" y="${y}">${sym}</text>`);
+    parts.push(`<text x="836" y="${y}" text-anchor="end">${val.html}</text>`);
+    parts.push(`<text class="bay-small" x="704" y="${y + 13}">${note}</text>`);
   });
 
   svg.innerHTML = parts.join('');

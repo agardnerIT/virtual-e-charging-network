@@ -42,8 +42,9 @@ struck through with the replacement noted, never deleted. Add new ones as `D37`,
 
 ## Before you call something done
 
-1. `make up` ends in a picture at <http://127.0.0.1:8091>.
-2. `make queues` → three edges at 0.
+1. `make up` ends in a picture at <http://127.0.0.1:8091> — and every site's mimic renders
+   (2 bay cells at the rural site, 12 at the depot).
+2. `make queues` → four edges at 0.
 3. The M1/M2 regressions still pass: `make fault SITE=rural FAULT=voltage-sag`, the deadband still
    suppresses steady registers, stopping `device-rural` turns quality to `comms-lost`, and
    `make spine` still ends in a `PowerLoss` transaction.
@@ -61,4 +62,5 @@ docs/findings.md     the hard-won findings, by area
 docs/standards.md    which spec each device/protocol claims, and how faithfully
 docs/sizing.md       measured RAM/disk, image audit, visual-stack bake-off
 docs/m2-build-log.md the M2 engineering log: what was built, what broke, what was measured
+tools/shot.js        headless-Chrome screenshot of the HMI, for verifying a mimic without a human
 ```

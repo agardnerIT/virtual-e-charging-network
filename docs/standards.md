@@ -119,7 +119,7 @@ speak the **JSON binding**, because 1.6S needs an XML stack for no benefit and 1
 |---|---|---|
 | `BootNotification` | CP → CSMS | Real registration, real `Accepted` + `currentTime` + heartbeat interval. The CSMS keeps a charge-point registry. |
 | `Heartbeat` | CP → CSMS | Answered with the CSMS clock. (The CP does not run the timer in this build; the exchange is implemented so a CSMS can demand it.) |
-| `StatusNotification` | CP → CSMS | Per connector, for `Available` / `Preparing` / `Charging` / `Finishing`. `errorCode` is carried, always `NoError` today. |
+| `StatusNotification` | CP → CSMS | Per connector, for `Available` / `Preparing` / `Charging` / `Finishing`. `errorCode` is carried, always `NoError` today. Twelve connectors on the depot's CP means twelve of these per connection. |
 | `Authorize` | CP → CSMS | Real `idTagInfo.status`; a configured deny-list returns `Blocked` and the session never starts. |
 | `StartTransaction` | CP → CSMS | Real `transactionId` allocation, `meterStart` in Wh, `timestamp`, `idTagInfo`. A rejected idTag returns transaction 0. |
 | `MeterValues` | CP → CSMS | Every 10 s with `Energy.Active.Import.Register` (Wh), `Power.Active.Import` (W), `Current.Offered` (A) and `Voltage` (V), each with `measurand`/`unit`/`context`. |
@@ -137,12 +137,47 @@ rule that makes `sunspec.py` shared by device and poller.
   point's own response to supply voltage, not an OCPP profile.
 - **Firmware management, diagnostics, reservations, local auth lists, OCPI, ISO 15118 / Plug & Charge.**
 - **Persistence.** The CSMS is in-memory by design (D34); a restart forgets transactions.
-- **OCPP conformance.** This is a subset, labelled a subset, exercised by one charge point.
+- **OCPP conformance.** This is a subset, labelled a subset, exercised by two charge points (2 and 12
+  connectors) against a test double each.
 
 The derate curve is ours, not OCPP's: at or above **0.94 pu** the EVSE offers nameplate (32 A); at or
 below **0.80 pu** it offers nothing; in between it is linear. 0.94 pu is the AS 60038 lower utilisation
 limit (216 V of 230 V); 0.80 pu is where a contactor drops out. Below 0.80 pu for **3 s** the transaction
 ends for `PowerLoss`.
+
+### One charge point, twelve connectors (M3-1)
+
+The metro depot is **one charge point with twelve connectors**, not twelve charge points. That is
+legal OCPP 1.6 — 1.6 is per-connector, and a power cabinet with twelve outlets is exactly the shape
+it describes — and it is the shape that keeps the concurrency visible: twelve simultaneous
+transactions share one WebSocket and one `uniqueId` counter, so a crossed transaction id or a shared
+session context would show up in-process instead of being hidden by the network. What is **not**
+claimed:
+
+- **Multiple charge points per site.** A real depot usually has several CPs, each with one or two
+  connectors, and a CSMS that knows them all. Twelve connectors on one CP is a fidelity trade for a
+  single process, and it means the depot exercises the CSMS's registry far less than a real one would.
+- **Load sharing between connectors.** Twelve bays drawing 22 kW each on one 400 V busbar is a load
+  that would need a charging profile (`SetChargingProfile`) or a power-sharing cabinet's own control
+  loop to be realistic. Neither is implemented; the offered current is a function of supply voltage
+  only, per bay, independently.
+- **A central CSMS.** There is one CSMS **per site**, in the site's own OT zone. A real CSMS is
+  central, and a single one here would have to sit in both OT zones — which would undo the zone
+  separation the repo exists to demonstrate. The instances are test doubles (D34) and hold
+  transactions in memory.
+
+### The site meter and the charge points are separate models
+
+The depot's `M1` reads about 13 kW while its twelve bays draw ~260 kW, and the rural site's meter
+reads ~14 kW beside one 22 kW bay. This is deliberate and it is a gap, not a measurement of the
+chargers: **there is no power-flow model in the stack.** The site meter simulates a load of its own
+(a building/HVAC load at a depot) and the charge point simulates what an EVSE offers; nothing sums
+them, because nothing in this repo is a network simulator. A real depot meter would read the sum.
+
+Read it the way a CPO would: the charge points are the metered, billing data (per transaction, from
+the CP's own meter values), and M1 is the site's supply meter for its own load. Do not read the two
+together as a balance. §6 lists this as not claimed, and `docs/findings.md` #42 records what it cost
+to notice.
 
 ## 6. Things this repo does **not** claim
 
@@ -153,3 +188,5 @@ ends for `PowerLoss`.
 - SunSpec *conformance*. Subsets are labelled subsets.
 - Real market settlement, real protection settings, real ISO 15118 / OCPP protocol depth.
 - OCPP conformance of any kind — §5 lists what is implemented and what is not.
+- A **power-flow model**. Site meters, inverters and charge points each simulate their own load or
+generation; the meter does not sum the chargers, and no node balances (§5, findings #42).
