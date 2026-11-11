@@ -322,3 +322,16 @@ code or config.
     series and its absolute values are not the disk usage. The number to quote is the `du` one:
     `docker run --rm -v <volume>:/q:ro alpine du -sk /q`. Both are recorded for the outage run, and
     the write-up quotes the `du` figure with the method.
+
+60. **A drained queue's history is silently rejected by Prometheus' OTLP receiver.** `otelcol`'s
+    export queue replays batches under their **original** timestamps, which is the right thing to do
+    (the data belongs to when it happened). Prometheus, however, only accepts samples inside its
+    out-of-order window, so a drained backlog older than the series' head is dropped — and the
+    collector never knows: the hub's OTLP receiver answers `200`, the edge's queue empties, and the
+    evidence is a single line in Prometheus' log, `msg="Out of order sample from remote write"`.
+    Measured on a 78 s outage: the microgrid's replayed series were all rejected, the edge's queue
+    went to 0, and the store showed a gap. **This is the answer to "what does the backend see after
+    an outage" that #3 asks for, and it is not the answer this repo had assumed**: the pipeline loses
+    nothing, and the store still may. The two claims have to be separated — "nothing was dropped by
+    the pipeline" is measurable at the edge (`enqueue_failed`, queue depth), and "the store kept it"
+    is a *different* measurement, done with `count_over_time` across the outage window.

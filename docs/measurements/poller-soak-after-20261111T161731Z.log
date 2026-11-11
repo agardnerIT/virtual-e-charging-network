@@ -1,0 +1,2 @@
+2026-11-11T16:17:31Z restarting: poller-rural poller-solar poller-microgrid ocpp-cp csms
+2026-11-11T16:17:33Z soaking for 35m, one sample every 30s -> docs/measurements/poller-soak-after-20261111T161731Z.csv
