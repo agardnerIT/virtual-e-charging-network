@@ -348,6 +348,22 @@ count_over_time(energy_meter_power_real_watts{energy_site_id="wind-snowtown"}[1m
 
 # How far behind is the device's clock?
 modbus_device_clock_offset_seconds
+
+# Load management: how close the highway hub's bays are to the site cap (M4, #12)
+energy_site_load_power_watts{energy_site_id="highway-hume"}
+  / (energy_site_capacity_current_amperes{energy_site_id="highway-hume"} * 690)
+
+# ... and *why* a bay is below its maximum: the grid, or our own policy
+count by (energy_evse_throttled_by) (energy_evse_current_offered_amperes)
+
+# The island's frequency against the NEM's normal band, with the battery's state beside it
+energy_microgrid_frequency_hertz{energy_site_id="microgrid-kangaroo-island"}
+energy_bess_state_of_charge_percent{energy_site_id="microgrid-kangaroo-island"}
+energy_bess_hold_reason_text{energy_site_id="microgrid-kangaroo-island"}
+
+# What the last hour of charging cost, at the recorded spot price (M4, #22)
+sum(increase(energy_session_energy_delivered_kW_h_total[1h]))
+  * on() group_left() max(energy_market_price_AUD_per_MW_h) / 1000
 ```
 
 `make prom Q='...'` sends any of these through the `ops` box; Prometheus publishes no host port.
