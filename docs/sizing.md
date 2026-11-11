@@ -372,87 +372,43 @@ The poller's report rate is 195 points/min for 28 real points because the scan i
 is every 5 s, and the deadband suppresses roughly a third of readings (34 838 suppressed of
 110 850 read, measured). The deadband is why the number is not 336/min.
 
-## Poller memory: 33 → 232 → 32 MiB
+## Poller memory: the same bug came back through a different door
 
-Symptom: `poller-rural` measured 33 MiB in the M1a write-up, then 88, 113, 158, 208 and finally
-232 MiB (`VmRSS`) across a single session, with `VmHWM == VmRSS` — it never gave memory back —
-and 6.09% CPU to poll 28 registers once a second.
+This section used to end with "the unchecked climb that took the process to 232 MiB has not
+recurred", and a decelerating curve attributed to allocator warm-up. **That explanation was wrong.**
+A soak in #17 showed the climb was still there — at **0.41–0.63 MiB per minute per poller** — from a
+*different* per-sample attribute that arrived with the dual-timestamp story (D12/D23).
 
-Method: separate heap from cache (`/sys/fs/cgroup/memory.stat` showed `anon` 204 MiB, `file`
-0.0 MiB, so this was real heap, not page cache), then bisect the runtime by importing layers,
-then count what actually crossed the wire.
+Both runs below are the same harness (`tools/poller-soak.sh`), the same targets, 30 minutes, one
+sample every 30 s, `VmRSS` (findings #35 explains why `VmRSS` and `docker stats` are both recorded).
+The CSVs are in `docs/measurements/`.
 
-| Layer | Resident |
-|---|---|
-| bare Python 3.12 | 10 MiB |
-| + `grpc` | 31 MiB |
-| + OTel SDK | 34 MiB |
-| + OTel gRPC exporter, pymodbus | 44 MiB |
+| process | before: `VmRSS` first → last | before slope | after: first → last | after slope |
+|---|---|---|---|---|
+| `poller-rural` | 47.2 → 60.9 MiB | **+0.41 MiB/min** | 44.6 → 44.0 MiB | **−0.02** |
+| `poller-solar` | 45.3 → 66.2 MiB | **+0.63 MiB/min** | 44.7 → 44.0 MiB | **−0.02** |
+| `poller-microgrid` | 47.0 → 50.4 MiB | +0.10 MiB/min | 44.6 → 43.1 MiB | −0.05 |
+| `ocpp-cp` | 51.1 → 49.0 MiB | −0.06 MiB/min (flat) | 49.4 → 49.4 MiB | +0.00 |
+| `csms` | 47.0 → 43.7 MiB | −0.10 MiB/min (flat) | 47.1 → 45.5 MiB | −0.05 |
 
-So 44 MiB was the floor and ~190 MiB had accumulated at runtime. Two causes, both bugs:
+**The cause:** `energy.device.timestamp` on every data point of every poll — deliberately, to carry
+"the device says it happened then". The OTel Python SDK keys its aggregation state by attribute set
+and never evicts, so a timestamp that changes per poll is a new aggregation entry per poll, forever.
+The charge point and CSMS were flat because their attributes are bounded (`energy.evse.id`,
+`energy.quality`). At solar's rate that is ~900 MiB/day — which is why `poller-metro` measured 103.6
+MiB beside a fresh poller's 31.8 MiB in #18's footprint run.
 
-1. **The report interval was the scan interval.** `_build_meter` passed `POLL_INTERVAL_MS` as the
-   OTLP export interval, so the poller opened a gRPC export once per second: 1 106 points/min
-   across the wire where ~28 are real. It also inverted the deadband's purpose — a steady
-   register is not worth a message, but a batch was sent every second regardless. Now
-   `OTEL_METRIC_EXPORT_INTERVAL_MS` = 5 000 and independent of the scan.
-2. **A per-sample attribute.** `modbus.register.raw` changes on every poll. It is exactly
-   recoverable from the value and the retained scale factor (`value = raw × 10^scale_factor`), so
-   the audit trail survives without carrying a per-sample copy of every reading.
+It is the *same* rule the M1a fix applied to `modbus.register.raw`, arriving one milestone later in an
+attribute that felt like payload rather than dimension — and the same trap that minted 4 532 series
+in 15 minutes in Prometheus (D25). That is now **D51: no data point attribute may change per sample,
+not even for provenance.** The device clock rides on the sag/stop spans and the log records; the
+metric path carries one bounded `modbus_device_clock_error_seconds` per device, which is the number an
+operator wants anyway.
 
-Result: **35.2 → 31.9 MiB** (`docker stats`) / **54 → 43 MiB** (`VmRSS`), CPU **6.09% → 0.17%**,
-wire **1 106 → ~195 points/min**, and the unchecked climb that took the process to 232 MiB has not
-recurred.
-
-**What is not established.** The old build took ~2.5 hours to reach 232 MiB; the fixed build has only
-been observed for tens of minutes at a stretch. Sampled on the HTTP build: **43 MiB at 0.6 min, 46 at
-5, 48 at 6, 50 at 22** — a *decelerating* curve (≈0.6 MiB/min early, ≈0.1 MiB/min late), which is
-what allocator warm-up looks like and not what the old build did. But 22 minutes is not 2.5 hours, and
-short windows are dominated by CPython arena steps — two consecutive windows on the same process
-measured 2.0 and 0.5 MiB/min, so a one-minute window is evidence of nothing. What *was* checked is
-that it is not a connection leak: file descriptors held at 8, threads at 3, and 4 TCP rows, all
-constant, sampled four times over two minutes.
-
-**Soak result (2026-10-15).** The 60-minute check was run, and a 9-hour reading happens to exist
-as well. The pre-rebuild process, sampled at 9 h uptime, sat at **67 MiB `VmRSS`** with
-`VmHWM == VmRSS` — bounded, an order of magnitude below the old 232 MiB climb, but not flat. The
-reworked poller held **44–49 MiB** across a 34-minute window (`VmHWM` tracking `VmRSS`, file
-descriptors flat at 8). Read together: allocator warm-up then a plateau, not a leak. Raw samples
-are in `docs/soak-poller-*.log` (one per minute). The method, so it does not need rediscovering:
-
-```bash
-docker exec otel-ot-poller-rural-1 sh -c 'grep VmRSS /proc/1/status'   # sample every few minutes
-docker exec otel-ot-poller-rural-1 sh -c 'ls /proc/1/fd | wc -l'        # flat = no leak, just heap
-```
-
-A hypothesis that was tested and discarded, recorded so nobody repeats it: unbounded accumulation
-of attribute-keyed aggregation series inside the SDK. It was disproved by the wire rate — an
-accumulating SDK would have been exporting hundreds of thousands of points per interval after
-hours of uptime, and it was exporting ~18.
-
-### Transport (D26)
-
-The site-local hop (poller → edge collector) moved from OTLP/gRPC to **OTLP/HTTP**. gRPC's
-advantages (HTTP/2 multiplexing, streaming, binary framing, throughput) buy nothing for ~200
-points a minute between two containers on the same bridge network, and the reliability story
-lives in the edge collector's disk-backed queue, which is transport-independent. It also removes
-`grpcio` — a native library — from the site image entirely.
-
-The saving is **8 MiB on `VmRSS` (54 → 43), not the ~20 MiB predicted**: the HTTP exporter pulls
-in `requests`/urllib3/certifi, which were not accounted for. Floor comparison, same probe shape:
-
-| | gRPC | HTTP |
-|---|---|---|
-| + OTel exporter + SDK + pymodbus | 44 MiB | 36 MiB |
-
-It also drops the thread count from **9 to 3** — grpcio brings a thread pool with it — which is a
-better reason to prefer it on a site box than the 8 MiB is.
-
-The edge → hub hop stays on gRPC. It crosses the impaired link, where HTTP is arguably the more
-robust choice (middlebox traversal, no idle connection to reap), but the reliability there comes
-from `retry_on_failure` + `file_storage`, not the transport, and the impairment profiles and queue
-accounting are already validated against gRPC. Recorded as a deliberate open choice rather than
-churned; the repo could later *demonstrate* the difference over one toxiproxy profile.
+**What that changes in this file:** "a poller is 32 MiB" was never true. "A *new* poller is 32 MiB"
+was, and the number that matters for a deployment is the plateau — 30 MiB under `docker stats`,
+44 MiB `VmRSS` — not the warm-up. The footprint figures elsewhere in this file quote a process age
+where it matters.
 
 ## Disk
 
@@ -491,12 +447,15 @@ Also recorded in docs/findings.md #32 for port 8888.
 Each of these is an issue, not a note. Nothing here is a promise; they are the places where a
 number in this file is missing or weaker than the prose around it.
 
-- Disk growth of the edge `file_storage` queues over a multi-hour outage: **#3** (measured; the
-  table lands here when that run finishes).
-- The poller's **60-minute soak**, to put the RSS slope beyond argument: **#17**. See "Poller
-  memory" for why short windows do not answer it.
-- A **seven-site projection**, re-measured rather than multiplied: **#18**. At today's numbers
-  7 pollers ≈ 223 MiB and 8 collectors ≈ 400 MiB, so ~0.8 GB — inside D10, but the collector
-  figures should be re-measured before either is quoted as fact.
-- **Where logs go.** Neither visual-stack candidate stores them without adding Loki, which is
-  the one component that could still threaten D10. That is a decision, not a measurement: **#19**.
+- **A ≥7-hour outage**, to exercise the queue's *capacity* limit rather than its disk. Measured
+  arrival rate is 11.8 batches/min against `queue_size: 5000` per exporter, so a 150-minute run uses
+  13 % of the queue and never reaches the drop policy. The queue file is *sparse*: 721 batches was
+  32 MiB apparent and 16.8 MiB allocated, so a full queue is ~220 MiB apparent — the limit is the
+  setting, not the disk (findings #59, #60).
+- A **seven-site** footprint on the real hardware class: #18 measured the *marginal* cost of a site
+  (97.1 MiB) by adding two; the total for seven is arithmetic on top of that.
+- **Where logs go** is decided (D45) and measured (~50 MiB for Loki with real traffic); a log store
+  under sustained load is not measured.
+- The **queue drop policy**: what `otelcol_exporter_enqueue_failed_metric_points` does at the limit
+  and whether the edge keeps the oldest or the newest batches. Untested because nothing here has
+  lasted seven hours.
