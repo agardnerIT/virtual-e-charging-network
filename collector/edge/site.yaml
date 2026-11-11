@@ -411,7 +411,11 @@ exporters:
     sending_queue:
       enabled: true
       num_consumers: 4
-      queue_size: 5000
+      # 5000 batches at a 5 s export interval is ~7 hours of outage on this stack (measured, #3):
+      # the queue is the binding limit long before the disk is. Overridable so the *drop* policy can
+      # be exercised in minutes rather than in a seven-hour wait (issue #26) — the default is
+      # unchanged and nothing else reads this.
+      queue_size: ${env:EDGE_QUEUE_BATCHES:-5000}
       storage: file_storage
 
 extensions:

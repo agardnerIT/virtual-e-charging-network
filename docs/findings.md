@@ -355,3 +355,15 @@ code or config.
     selector in `last_over_time(...[25s])`, which drops series that have not reported recently, and
     taking the max of what remains. This is the same lesson as D41 in a different disguise: **the
     freshness of a series is a property you have to ask for explicitly.**
+
+62. **At the queue limit the collector keeps the oldest batches and drops the newest points.** Measured
+    with a deliberately small queue (`EDGE_QUEUE_BATCHES=50` on one edge, #26): the queue pinned at
+    150 batches and `otelcol_exporter_enqueue_failed_metric_points` climbed at ~870 points/min, while
+    the store's coverage confirmed *which* data went missing — `count_over_time(...[60s] @ <early>)`
+    kept 12 samples per series and the same query at a *later* timestamp kept none. `enqueue_failed`
+    counts refused *enqueues*, i.e. the new ones, so a saturated queue loses exactly the most recent
+    telemetry. That is the opposite of the usual mental model of a disk queue ("it holds everything
+    until it fills"), and it is the reason the only alarm that matters here is `enqueue_failed` — the
+    queue depth tells you when, and the store tells you what, but the counter tells you *that*.
+    Also measured: `queue_size` buys time, not volume of history, and the time is site-specific —
+    5 000 batches is ~7 h at the wind farm's 11.9 batches/min and ~2.4 h at the highway hub's 34.7.

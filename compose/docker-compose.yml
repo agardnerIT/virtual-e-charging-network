@@ -222,6 +222,7 @@ services:
       SITE_LAT: "-31.9539"
       SITE_LON: "141.4539"
       HUB_ENDPOINT: toxiproxy:14317
+      EDGE_QUEUE_BATCHES: "${EDGE_QUEUE_BATCHES:-5000}"
     volumes:
       - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
       - edge-rural-queue:/var/lib/otelcol/queue
@@ -356,6 +357,7 @@ services:
       SITE_LAT: "-34.1850"
       SITE_LON: "142.1620"
       HUB_ENDPOINT: toxiproxy:14318
+      EDGE_QUEUE_BATCHES: "${EDGE_QUEUE_BATCHES:-5000}"
     volumes:
       - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
       - edge-solar-queue:/var/lib/otelcol/queue
@@ -428,6 +430,7 @@ services:
       SITE_LAT: "-33.8167"
       SITE_LON: "138.2167"
       HUB_ENDPOINT: toxiproxy:14319
+      EDGE_QUEUE_BATCHES: "${EDGE_QUEUE_BATCHES:-5000}"
     volumes:
       - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
       - edge-wind-queue:/var/lib/otelcol/queue
@@ -489,6 +492,7 @@ services:
       SITE_LAT: "-37.8016"
       SITE_LON: "144.8560"
       HUB_ENDPOINT: toxiproxy:14320
+      EDGE_QUEUE_BATCHES: "${EDGE_QUEUE_BATCHES:-5000}"
     volumes:
       - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
       - edge-metro-queue:/var/lib/otelcol/queue
@@ -594,6 +598,7 @@ services:
       SITE_LAT: "-35.7750"
       SITE_LON: "137.2140"
       HUB_ENDPOINT: toxiproxy:14321
+      EDGE_QUEUE_BATCHES: "${EDGE_QUEUE_BATCHES:-5000}"
     volumes:
       - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
       - edge-microgrid-queue:/var/lib/otelcol/queue
@@ -680,6 +685,7 @@ services:
       SITE_LAT: "-35.1500"
       SITE_LON: "147.4500"
       HUB_ENDPOINT: toxiproxy:14322
+      EDGE_QUEUE_BATCHES: "${EDGE_QUEUE_BATCHES:-5000}"
     volumes:
       - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
       - edge-highway-queue:/var/lib/otelcol/queue

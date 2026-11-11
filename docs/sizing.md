@@ -247,6 +247,53 @@ with every session and every process age, which is the whole lesson of the next 
 
 ---
 
+## What happens when the queue fills — measured in four minutes, not seven hours (M4, #26)
+
+`queue_size` is in **batches**, and the interesting question is not the number but the *time* it buys.
+#3's 120-minute outage used 9.5 % of the default queue, so the drop policy had never been exercised.
+The fix is not a seven-hour wait: give one edge a small queue (`EDGE_QUEUE_BATCHES`, which only that
+edge reads) and fill it in minutes.
+
+## The experiment
+
+`edge-highway` with `EDGE_QUEUE_BATCHES=50` (150 batches across its three exporters), link down:
+
+| | |
+|---|---|
+| baseline fill rate | 0 → 150 batches in **259 s** = **34.7 batches/min** |
+| at the limit | queue pinned at 150, `otelcol_exporter_enqueue_failed_metric_points` climbing |
+| drop rate once full | **~870 points/min** (~145 per 10 s sample) |
+| drain after restore | 150 → 0 in **~2 min**, `sent` 1 083 → 6 175 points |
+
+**The collector keeps the oldest and drops the newest.** Verified at the store, not inferred: with the
+query `count_over_time(energy_meter_power_real_watts{energy_site_id="highway-hume"}[60s] @ <t>)`, the
+window ending **17:40** (early in the outage) holds 12 samples per series, and the window ending
+**17:45** (late) holds **none**. `enqueue_failed` counts the points that could not be *enqueued* — the
+new ones — so a saturated queue loses exactly the telemetry an operator most wants.
+
+That is the opposite of what most people assume a disk queue does, and it is the one behaviour worth
+knowing before sizing it.
+
+## What that means for the default
+
+The same `queue_size: 5000` per exporter buys very different outages depending on how fast a site's
+batches arrive:
+
+| Site | batch rate | 5 000 batches buys |
+|---|---|---|
+| `wind-snowtown` (measured, #3) | 11.9 /min | **~7 h** |
+| `highway-hume` (measured, #26) | 34.7 /min | **~2.4 h** |
+
+A 3× difference from point rate alone, at the same setting. So `queue_size` should be chosen per site
+from the measured batch rate and the longest outage you intend to survive — and until then, alarm on
+`enqueue_failed`, because it is the *only* signal that the newest telemetry is being thrown away.
+
+The queue's on-disk cost is not the constraint at either rate: at 1 384 batches the metrics queue file
+was 33.5 MB apparent and ~27 MiB allocated (findings #59), and a full 15 000-batch queue would be a few
+hundred MiB.
+
+---
+
 ## The marginal cost of a site, measured by adding two (M4, #18)
 
 The headline number in this file is a *whole stack*, which is the wrong unit for anyone planning a
@@ -466,11 +513,9 @@ Also recorded in docs/findings.md #32 for port 8888.
 Each of these is an issue, not a note. Nothing here is a promise; they are the places where a
 number in this file is missing or weaker than the prose around it.
 
-- **A ≥7-hour outage**, to exercise the queue's *capacity* limit rather than its disk. Measured
-  arrival rate is 11.8 batches/min against `queue_size: 5000` per exporter, so a 150-minute run uses
-  13 % of the queue and never reaches the drop policy. The queue file is *sparse*: 721 batches was
-  32 MiB apparent and 16.8 MiB allocated, so a full queue is ~220 MiB apparent — the limit is the
-  setting, not the disk (findings #59, #60).
+- **A ≥7-hour outage at the wind site**, only if the *default* queue is the subject. The drop policy
+  itself is now measured with a small queue (#26): keep-the-oldest, drop-the-newest, ~870 points/min
+  at the highway hub's rate. A long run would only confirm the timing, not the behaviour.
 - A **seven-site** footprint on the real hardware class: #18 measured the *marginal* cost of a site
   (97.1 MiB) by adding two; the total for seven is arithmetic on top of that.
 - **Where logs go** is decided (D45) and measured (~50 MiB for Loki with real traffic); a log store
