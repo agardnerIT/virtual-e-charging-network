@@ -1252,6 +1252,16 @@ const ALARMS = [
     affectedLabel: 'point(s)',
   },
   {
+    id: 'site-at-cap',
+    label: 'Site at its capacity cap, bays are being held down',
+    pri: 'Medium',
+    // Two points, so like the stuck-bay alarm this is a function of the site rather than a
+    // predicate on one sample. Only a site with a cap can raise it (M4, #12).
+    custom: (site) => (siteAtCap(site) ? ['cap'] : []),
+    affected: (site) => evalvesCharging(site).length,
+    affectedLabel: 'bay(s) sharing it',
+  },
+  {
     id: 'curtailment',
     label: 'Generation curtailed',
     pri: 'Low',
@@ -1269,6 +1279,17 @@ function evalvesCharging(site) {
 
 /* A bay in `Charging` with zero delivered power: the fault that looks fine on a status page and
    is not fine. Two points, one bay — which is why it cannot be a single-point predicate. */
+/* The site is at (or within 2 % of) its OCPP capacity cap, which means the bays are being held
+   below what the vehicles asked for — a policy decision worth telling an operator about, and a
+   different failure from a sag. */
+function siteAtCap(site) {
+  const capA = bound(site.id, 'site_cap', null);
+  const loadW = bound(site.id, 'site_load', null);
+  if (!capA || !loadW) return false;
+  const capW = capA.value * 0.69 * 1000;   // 230 V L-N, three phases, A -> W
+  return capW > 0 && loadW.value / capW >= 0.98;
+}
+
 function baysStuck(site) {
   const stuck = [];
   for (const p of pointsFor(site.id)) {

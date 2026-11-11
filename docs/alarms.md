@@ -40,6 +40,7 @@ repo implements is the shape, derived from data:
 | Grid former at a limit (hold) | Medium | Battery at SoC floor/ceiling or at its power limit | Nothing immediately: the battery is doing its job. Watch frequency | One row per site |
 | Frequency outside 49.85–50.15 Hz | Medium | Islanded site: load/generation imbalance at the limit of the grid former | Shed load or curtail; check `energy.bess.hold_reason` for *why* | One row per site |
 | Device not answering (`comms-lost`) | High | Modbus/OCPP link to the device, not the WAN | Look at the device, not the network | One row per site with a point count |
+| Site at its capacity cap | Medium | The site is at (within 2 % of) its OCPP `ChargePointMaxProfile`, so bays are held below what the vehicles asked for | None operationally — this is the site working as designed. Log it, and check `energy.evse.throttled_by` before blaming the grid | One row per site, with the number of bays sharing the cap |
 | Generation curtailed | Low | Operator export limit, or a connection cap | Commercial, not operational | One row per site |
 
 **First-out** is the oldest sample that satisfies the condition, taken from the store's receive time
