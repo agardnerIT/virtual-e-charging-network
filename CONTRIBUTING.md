@@ -52,15 +52,23 @@ issue number or it is deleted.
 ## Before you call something done
 
 1. `make up` ends in a picture at <http://127.0.0.1:8091> — and every site's mimic renders
-   (2 bay cells at the rural site, 12 at the depot).
+   (2 bay cells at the rural site, 12 at the depot, 6 at the highway hub).
 2. `make queues` → six edges at 0.
-3. The M1/M2 regressions still pass: `make fault SITE=rural FAULT=voltage-sag`, the deadband still
+3. **`make demo` passes.** It is the narrative as a test: six sites, a session, a sag ending in
+   `PowerLoss` with the trace to prove it, a load step on the island, a capacity cap throttling the
+   highway hub, and a link outage that loses nothing. Non-zero exit means the repo does not do what
+   it claims.
+4. The M1/M2 regressions still pass: `make fault SITE=rural FAULT=voltage-sag`, the deadband still
    suppresses steady registers, stopping `device-rural` turns quality to `comms-lost`, and
    `make spine` still ends in a `PowerLoss` transaction.
-4. `make stats` → update `docs/sizing.md` if the footprint moved, and say which measurement it is
+5. **The schema and the byte layout still hold:** `make registry-check` (the `energy.*` vocabulary
+   agrees with what the stack emits, in both directions) and `make sunspec-check` (every register
+   map round-trips, both word orders, sentinels included).
+6. `make slo` prints four SLOs with targets. If a change moves one of them, say why.
+7. `make stats` → update `docs/sizing.md` if the footprint moved, and say which measurement it is
    (`docker stats` vs `VmRSS`).
-5. `docs/standards.md` states fidelity per device and per protocol. Update it if you added either.
-6. If you learned something the hard way, add it to `docs/findings.md`.
+8. `docs/standards.md` states fidelity per device and per protocol. Update it if you added either.
+9. If you learned something the hard way, add it to `docs/findings.md`.
 
 ## Where things live
 

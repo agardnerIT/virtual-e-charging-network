@@ -79,3 +79,17 @@ track, a fill, and `kW · % of cap`, labelled with the profile it came from. Two
 On the highway site with six bays charging and a 100 kW cap, the bar sits at ~98 %: the six bays are
 offered 24.2 A each (144.9 / 6), delivering 16.4 kW each. Clear the cap and the bars go away and the
 offers return to 32 A — which is the whole point of it being a control rather than a setting.
+
+## Alarms and the SLOs
+
+The site page carries an **alarm list** above the trend — ISA-18.2-shaped (priority, first-out,
+state, acknowledge) but derived entirely from the points the page already has, so it cannot drift
+from the data beside it. One row per *condition*, not per entity: a sag at the depot is one High
+alarm saying "12 bay(s) charging through it", not twelve alarms, and the acknowledge is per browser
+session because there is no alarm state store and pretending otherwise would be the one dishonest
+thing in the list. `docs/alarms.md` has the rationalisation table and the argument.
+
+The **SLOs** are not on the page. They are four queries printed by `make slo`
+(session success rate, time to first power p95, delivered vs requested energy, power-quality
+exposure per 100 sessions), because an SLO is a number you argue about in a review, not a dial on a
+wall.
