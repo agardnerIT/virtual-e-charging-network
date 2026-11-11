@@ -493,6 +493,25 @@ groups:
       - ref: modbus.register.scale_factor
       - ref: energy.device.timestamp
       - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.event_vendor
+    type: metric
+    metric_name: energy.inverter.event_vendor
+    brief: "Vendor event bitfield. Ours is always zero - the model does not invent vendor faults."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
   - id: metric.energy.inverter.export_limit
     type: metric
     metric_name: energy.inverter.export_limit
@@ -712,6 +731,64 @@ groups:
       - ref: modbus.register.scale_factor
       - ref: energy.device.timestamp
       - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.ride_through_state
+    type: metric
+    metric_name: energy.inverter.ride_through_state
+    brief: "1 while riding through, 0 if tripped. This model never trips, which is stated rather than implied."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.ride_through_time
+    type: metric
+    metric_name: energy.inverter.ride_through_time
+    brief: "How long the inverter must remain connected at the ride-through floor, in milliseconds."
+    instrument: gauge
+    unit: "ms"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.ride_through_voltage
+    type: metric
+    metric_name: energy.inverter.ride_through_voltage
+    brief: "Voltage ride-through floor as a percentage of nominal (SunSpec model 129 subset) - the voltage the inverter must stay connected down to."
+    instrument: gauge
+    unit: "%"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
   - id: metric.energy.inverter.status
     type: metric
     metric_name: energy.inverter.status
@@ -774,6 +851,25 @@ groups:
     type: metric
     metric_name: energy.inverter.temperature.heatsink
     brief: "energy.inverter.temperature.heatsink"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.transformer_temperature
+    type: metric
+    metric_name: energy.inverter.transformer_temperature
+    brief: "Inverter-side transformer temperature."
     instrument: gauge
     unit: "1"
     stability: development
@@ -1250,7 +1346,7 @@ groups:
     metric_name: energy.pv.irradiance
     brief: "Plane-of-array or global-horizontal irradiance; which plane is in energy.irradiance.plane."
     instrument: gauge
-    unit: "W/m2"
+    unit: "1"
     stability: development
     attributes:
       - ref: energy.site.id
@@ -1265,10 +1361,67 @@ groups:
       - ref: energy.device.timestamp
       - ref: energy.receive.timestamp
       - ref: energy.irradiance.plane
+  - id: metric.energy.pv.irradiance.diffuse
+    type: metric
+    metric_name: energy.pv.irradiance.diffuse
+    brief: "Diffuse horizontal irradiance. On an overcast day this is most of the light; a tracking surface cannot chase it."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.pv.irradiance.direct
+    type: metric
+    metric_name: energy.pv.irradiance.direct
+    brief: "Direct normal irradiance. What a tracker can chase and what a fixed array only gets at an angle."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
   - id: metric.energy.pv.module_temperature
     type: metric
     metric_name: energy.pv.module_temperature
     brief: "Back-of-module cell temperature. Derates DC power; the reason a hot clear day produces less."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.pv.transformer_temperature
+    type: metric
+    metric_name: energy.pv.transformer_temperature
+    brief: "Step-up transformer temperature. The slowest thermal time constant on the site, and what derates a farm on a hot still afternoon."
     instrument: gauge
     unit: "1"
     stability: development

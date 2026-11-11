@@ -210,6 +210,13 @@ class InverterModel:
         # Global horizontal is always below POA for a tilted array; keep the relationship
         # physical rather than making GH a second independent random number.
         gh = poa * (0.80 + 0.03 * math.sin(t / 600.0))
+        # Diffuse and direct components (#23). The split follows the cloud cover rather than the
+        # clock: an overcast sky is nearly all diffuse, a clear one nearly all direct. That is
+        # the physically meaningful part - direct irradiance is what a tracking surface can
+        # chase and diffuse is what a flat one cannot escape.
+        diffuse_frac = min(1.0, max(0.10, 0.10 + 0.85 * (1.0 - self._cloud)))
+        dfi = max(0.0, gh * diffuse_frac)
+        dni = max(0.0, (gh - dfi) / 0.85)   # DNI = (GH - DFI) / cos(zenith), ~0.85 at this latitude
 
         t_amb = 16.0 + 12.0 * elev + self._noise(0.25)
         # NOCT-style cell rise: +25 degC over ambient at 800 W/m2.
@@ -288,16 +295,22 @@ class InverterModel:
             "DCW": p_dc * 1000.0,
             "DCWH": self.energy_dc_kwh,
             "TmpCab": tmp_cab, "TmpSnk": tmp_snk,
-            "St": st, "StVnd": STVND_NONE, "Evt1": 0,
+            # The step-up transformer lags the inverter: bigger mass, slower to heat, slower to
+            # cool. It is the thing that derates a farm on a hot still afternoon.
+            "TmpTrns": t_amb + 6.0 + 30.0 * load + self._noise(0.2),
+            "St": st, "StVnd": STVND_NONE, "Evt1": 0, "EvtVnd": 0,
             # -- model 160, one entry per MPPT block
             "MPPT_ID_1": 1, "MPPT_ID_2": 2,
             "MPPT_DCA_1": dca1, "MPPT_DCV_1": dcv1, "MPPT_DCW_1": p_dc1 * 1000.0, "MPPT_Tmp_1": t_cell - 4.0,
             "MPPT_DCA_2": dca2, "MPPT_DCV_2": dcv2, "MPPT_DCW_2": p_dc2 * 1000.0, "MPPT_Tmp_2": t_cell - 3.0,
             # -- models 302 / 303, the weather pair
-            "GH": gh, "POA": poa,
+            "GH": gh, "POA": poa, "DFI": dfi, "DNI": dni,
             "TmpBOM": t_cell, "TmpAmb": t_amb,
-            # -- model 123 + vendor
+            # -- model 123 + model 129 (ride-through values a connection agreement would set)
             "WMaxLimPct": limit_pct,
+            "VMinPct": 90.0,      # stay connected down to 90 % of nominal
+            "VMinTms": 1000,      # ... for at least a second
+            "VrtSt": 1,           # 1 = riding through, 0 = tripped. Never trips in this model.
             "FaultCode": 0,
             "CurtailState": curtail_state,
         }

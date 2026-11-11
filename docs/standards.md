@@ -76,8 +76,9 @@ analyser.
 Scale factors: A 0 (1 A — a 4.2 MVA inverter at 690 V carries ~3.5 kA), V −1, Hz −2,
 W/VA/VAR +3 (kW/kVA/kvar — 4 MW does not fit int16 at 1 W), PF −3, WH −1, Tmp −1.
 `St` is the SunSpec 103 operating-state enum (0 off, 3 sleeping, 4 MPPT, 7 fault).
-Not implemented: the other control/curve models (**out of scope**), event history (**out of
-scope**), and `EvtVnd`/`TmpTrns` (**deferred** — cheap, and a real device publishes them).
+Implemented since #23: `EvtVnd` (vendor event bitfield, always 0 — the model does not invent vendor
+faults) and `TmpTrns`. Not implemented (**out of scope**): the other control/curve models and event
+history.
 
 ### 2.4 Model 160 — MPPT (subset, 2 repeating blocks) — solar site
 `ID`, `DCA`, `DCV`, `DCW`, `Tmp` per block. The block **repeats** (`repeats=2`) and the
@@ -89,17 +90,24 @@ inverter model's `A_SF`/`V_SF`/`W_SF`/`Tmp_SF`, which in practice carry the same
 This is the one place the subset is visible in the byte layout, and it is stated here.
 
 ### 2.5 Models 302 / 303 — Irradiance and temperature (subsets) — solar site
-302: `GH` (global horizontal), `POA` (plane of array), W/m². 303: `TmpBOM` (back of module),
-`TmpAmb`. Not implemented (**deferred**): diffuse/DNI and optical cleanliness (302) and the other
-303 temperature points — each is a register add to `sim/sunspec.py`, and none of them changes a
-claim this repo makes.
+302: `GH` (global horizontal), `POA` (plane of array), `DFI` (diffuse horizontal), `DNI` (direct
+normal), W/m². 303: `TmpBOM` (back of module), `TmpAmb`, `TmpTrns` (the step-up transformer).
+Split into three components because the diffuse/direct split is the difference between an overcast
+day (mostly diffuse, a tracker gets little) and a broken-cloud day (direct bursts) — not two more
+readings of the same quantity. Not implemented (**deferred**, #23): optical cleanliness (`EC`).
+Not implemented (**out of scope**): the per-point curve tables of 302's full model.
 
 ### 2.6 Model 123 — Immediate controls (2-point subset) — solar and wind
 `WMaxLimPct` and `WMaxLimPct_SF`: the export limit as a percentage of nameplate AC.
-This is the point a network operator actually writes. Not implemented (**deferred**): the rest of
-123 — voltage/frequency ride-through curves, connection/ramp-rate controls, timers. The
-ride-through *values* are the ones an engineer would actually want; nothing is claimed about
-them.
+This is the point a network operator actually writes. Not implemented (**out of scope**): the rest
+of 123 — connection/ramp-rate controls, timers.
+
+**Correction to #23's issue text:** ride-through is *not* in model 123. It is models **129 (VRT)**
+and **130 (FRT)**, which this repo now carries as a **129 subset**: `VMinPct` (the voltage floor as
+a percentage of nominal), `VMinTms` (how long the inverter must stay connected there) and `VrtSt`
+(riding through / tripped). Those are the values a connection agreement sets and the ones an
+engineer checks after a trip. The full model's repeating point table is **out of scope**, and this
+model never trips — stated rather than implied.
 
 ### 2.7 Vendor model 64001 — device clock and provenance
 SunSpec reserves 64000+ for vendor extensions. `UnixTime` (the device's own clock),

@@ -38,7 +38,7 @@ VISUAL_PHASES ?=
 # default, which means real local time and an honest irradiance curve.
 SOLAR_CLOCK_HOUR ?=
 
-.PHONY: up up-debug assert-traffic demo slo registry-check registry-stats down ps logs stats queues link fault fault-status profiles clean queue-detail \
+.PHONY: up up-debug assert-traffic demo slo registry-check registry-stats sunspec-check down ps logs stats queues link fault fault-status profiles clean queue-detail \
 	device-logs poller-logs visual prom hmi curtail step microgrid-status clock-skew clock-reset \
 	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
@@ -295,6 +295,11 @@ registry-check:
 
 registry-stats:
 	@$(WEAVER) registry stats -r /registry
+
+# The byte layout every fidelity claim rests on: encode -> decode for every map, both word orders,
+# the not-implemented sentinel, and the model chain (#23).
+sunspec-check:
+	@./tools/sunspec-roundtrip.py
 
 profiles:
 	@curl -s $(TOXIPROXY)/proxies | python3 -m json.tool

@@ -244,6 +244,9 @@ INVERTER_ENTRIES: list[tuple] = [
     ("St",        "uint16", None,        "status",          None,  "1",    None),
     ("StVnd",     "uint16", None,        "status.vendor",   None,  "1",    None),
     ("Evt1",      "uint32", None,        "event",           None,  "1",    None),
+    # #23: the vendor half of the event word, and the transformer temperature on the AC side.
+    ("EvtVnd",    "uint32", None,        "event.vendor",    None,  "1",    None),
+    ("TmpTrns",   "int16",  "Tmp_SF",    "temperature.transformer", None, "Cel", None),
 ]
 
 # --------------------------------------------------------------------------------------
@@ -273,11 +276,35 @@ MPPT_ENTRIES: list[tuple] = [
 IRRADIANCE_ENTRIES: list[tuple] = [
     ("GH",  "uint16", "Irradiance_SF", "irradiance",      None, "W/m2", None),
     ("POA", "uint16", "Irradiance_SF", "irradiance.poa",  None, "W/m2", None),
+    # Deferred-gap fill (#23): diffuse horizontal and direct normal. Not decoration - the ratio
+    # GH:DFI says whether a cloudy day is diffuse (a tracker gets little) or broken (it gets
+    # everything for a minute), which is the difference between two very different PV curves.
+    ("DFI", "uint16", "Irradiance_SF", "irradiance.diffuse",  None, "W/m2", None),
+    ("DNI", "uint16", "Irradiance_SF", "irradiance.direct",   None, "W/m2", None),
 ]
 
 TEMPERATURE_ENTRIES: list[tuple] = [
-    ("TmpBOM", "int16", "Tmp_SF", "temperature.module",   None, "Cel", None),
-    ("TmpAmb", "int16", "Tmp_SF", "temperature.ambient",  None, "Cel", None),
+    ("TmpBOM",  "int16", "Tmp_SF", "temperature.module",      None, "Cel", None),
+    ("TmpAmb",  "int16", "Tmp_SF", "temperature.ambient",     None, "Cel", None),
+    # #23: the step-up transformer's temperature. A utility farm's transformer is its slowest
+    # thermal time constant and the thing that derates on a hot still afternoon.
+    ("TmpTrns", "int16", "Tmp_SF", "temperature.transformer", None, "Cel", None),
+]
+
+# --------------------------------------------------------------------------------------
+# Model 129 (VRT - voltage ride-through) subset. Note for the #23 issue text: ride-through is
+# NOT in model 123. 123 is immediate controls (the export limit); the ride-through *values* live
+# in 129 (VRT) and 130 (FRT), which is why this is a separate model here.
+#
+# Two points only - the ride-through floor (as a percentage of nominal) and how long the inverter
+# must stay connected there. That is the number a network operator writes into a connection
+# agreement and the number an engineer checks after a trip; the full model's curve table (2
+# repeating point blocks with per-point durations) is out of scope and labelled so here.
+# --------------------------------------------------------------------------------------
+VRT_ENTRIES: list[tuple] = [
+    ("VMinPct",  "uint16", "WMaxLimPct_SF", "ride_through.voltage", None, "%", None),
+    ("VMinTms",  "uint16", None,            "ride_through.time",    None, "ms", None),
+    ("VrtSt",    "uint16", None,            "ride_through.state",   None, "1", None),
 ]
 
 # --------------------------------------------------------------------------------------
@@ -613,10 +640,12 @@ INVERTER_MAP = _build_map(
      Model(302, "irradiance", tuple(IRRADIANCE_ENTRIES)),
      Model(303, "temperature", tuple(TEMPERATURE_ENTRIES)),
      Model(123, "controls", tuple(CONTROLS_ENTRIES)),
+     Model(129, "vrt", tuple(VRT_ENTRIES)),
      Model(64001, "vendor", tuple(INVERTER_VENDOR_ENTRIES))],
     INVERTER_SCALE_FACTORS,
     {"inverter": "modbus.inverter", "mppt": "modbus.mppt", "irradiance": "modbus.irradiance",
-     "temperature": "modbus.temperature", "controls": "modbus.controls", "vendor": "modbus.vendor"},
+     "temperature": "modbus.temperature", "controls": "modbus.controls", "vrt": "modbus.vrt",
+     "vendor": "modbus.vendor"},
 )
 
 MAPS: dict[str, RegisterMap] = {"meter": METER_MAP, "inverter": INVERTER_MAP}

@@ -146,6 +146,16 @@ processors:
           - set(metric.name, "energy.inverter.mppt.power")     where metric.name == "modbus.mppt.mppt_dcw"
           - set(metric.name, "energy.inverter.mppt.temperature") where metric.name == "modbus.mppt.mppt_tmp"
           - set(metric.name, "energy.pv.irradiance")           where IsMatch(metric.name, "^modbus\\.irradiance\\.(gh|poa)$")
+          # The deferred irradiance gap (#23): diffuse and direct are different resources, not
+          # two more readings of the same one, so they are their own metric names.
+          - set(metric.name, "energy.pv.irradiance.diffuse")   where metric.name == "modbus.irradiance.dfi"
+          - set(metric.name, "energy.pv.irradiance.direct")    where metric.name == "modbus.irradiance.dni"
+          - set(metric.name, "energy.pv.transformer_temperature") where metric.name == "modbus.temperature.tmptrns"
+          - set(metric.name, "energy.inverter.transformer_temperature") where metric.name == "modbus.inverter.tmptrns"
+          - set(metric.name, "energy.inverter.event_vendor")   where metric.name == "modbus.inverter.evtvnd"
+          - set(metric.name, "energy.inverter.ride_through_voltage") where metric.name == "modbus.vrt.vminpct"
+          - set(metric.name, "energy.inverter.ride_through_time")    where metric.name == "modbus.vrt.vmintms"
+          - set(metric.name, "energy.inverter.ride_through_state")   where metric.name == "modbus.vrt.vrtst"
           - set(metric.name, "energy.pv.module_temperature")   where metric.name == "modbus.temperature.tmpbom"
           - set(metric.name, "energy.pv.ambient_temperature")  where metric.name == "modbus.temperature.tmpamb"
           - set(metric.name, "energy.inverter.export_limit")   where metric.name == "modbus.controls.wmaxlimpct" and resource.attributes["energy.device.kind"] == "inverter"
@@ -159,10 +169,12 @@ processors:
           - set(metric.unit, "W")    where IsMatch(metric.name, "^energy\\.inverter\\.(power\\.real|dc\\.power|mppt\\.power)$")
           - set(metric.unit, "VA")   where metric.name == "energy.inverter.power.apparent"
           - set(metric.unit, "var")  where metric.name == "energy.inverter.power.reactive"
-          - set(metric.unit, "1")    where IsMatch(metric.name, "^energy\\.inverter\\.(power_factor|status|status\\.vendor|event|fault_code|curtailment)$")
+          - set(metric.unit, "1")    where IsMatch(metric.name, "^energy\\.inverter\\.(power_factor|status|status\\.vendor|event|event_vendor|fault_code|curtailment|ride_through_state)$")
+          - set(metric.unit, "%")    where metric.name == "energy.inverter.ride_through_voltage"
           - set(metric.unit, "kW.h") where IsMatch(metric.name, "^energy\\.inverter\\.(energy|dc\\.energy)$")
-          - set(metric.unit, "Cel")  where IsMatch(metric.name, "^energy\\.(inverter\\.temperature|inverter\\.mppt\\.temperature|pv\\.(module_temperature|ambient_temperature))")
-          - set(metric.unit, "W/m2") where metric.name == "energy.pv.irradiance"
+          - set(metric.unit, "Cel")  where IsMatch(metric.name, "^energy\\.(inverter\\.(temperature|transformer_temperature)|inverter\\.mppt\\.temperature|pv\\.(module_temperature|ambient_temperature|transformer_temperature))")
+          - set(metric.unit, "W/m2") where IsMatch(metric.name, "^energy\\.pv\\.irradiance(\\.(diffuse|direct))?$")
+          - set(metric.unit, "ms")   where metric.name == "energy.inverter.ride_through_time"
           - set(metric.unit, "%")    where metric.name == "energy.inverter.export_limit"
 
           # 1c. DESCRIPTIONS. A metric without one is a metric nobody trusts.
@@ -177,6 +189,14 @@ processors:
           - set(metric.description, "Back-of-module cell temperature. Derates DC power; the reason a hot clear day produces less.") where metric.name == "energy.pv.module_temperature"
           - set(metric.description, "Network export limit as a percentage of nameplate AC. 100 means uncurtailed.") where metric.name == "energy.inverter.export_limit"
           - set(metric.description, "0 not limited, 1 export-limited by the network, 2 clipped by the inverter's own AC rating.") where metric.name == "energy.inverter.curtailment"
+          - set(metric.description, "Diffuse horizontal irradiance. On an overcast day this is most of the light; a tracking surface cannot chase it.") where metric.name == "energy.pv.irradiance.diffuse"
+          - set(metric.description, "Direct normal irradiance. What a tracker can chase and what a fixed array only gets at an angle.") where metric.name == "energy.pv.irradiance.direct"
+          - set(metric.description, "Step-up transformer temperature. The slowest thermal time constant on the site, and what derates a farm on a hot still afternoon.") where metric.name == "energy.pv.transformer_temperature"
+          - set(metric.description, "Inverter-side transformer temperature.") where metric.name == "energy.inverter.transformer_temperature"
+          - set(metric.description, "Vendor event bitfield. Ours is always zero - the model does not invent vendor faults.") where metric.name == "energy.inverter.event_vendor"
+          - set(metric.description, "Voltage ride-through floor as a percentage of nominal (SunSpec model 129 subset) - the voltage the inverter must stay connected down to.") where metric.name == "energy.inverter.ride_through_voltage"
+          - set(metric.description, "How long the inverter must remain connected at the ride-through floor, in milliseconds.") where metric.name == "energy.inverter.ride_through_time"
+          - set(metric.description, "1 while riding through, 0 if tripped. This model never trips, which is stated rather than implied.") where metric.name == "energy.inverter.ride_through_state"
           - set(metric.description, "SunSpec model 103 operating state (3 sleeping, 4 MPPT, 7 fault).") where metric.name == "energy.inverter.status"
 
       # 2. THE INVERTER-ONLY DIMENSIONS. Quality, the receive timestamp and the A/B/C ->

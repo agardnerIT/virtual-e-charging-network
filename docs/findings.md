@@ -279,3 +279,12 @@ code or config.
     is what you want — but a `spine` run against a *freshly restarted* CP that has not yet reached
     its first session will sag into an idle bay and produce no `PowerLoss`. Wait for
     `make session-status` to show `Charging` before judging the run.
+
+55. **"Local time" in the simulators is the container's clock, and the containers run UTC.** The
+    solar site's irradiance curve uses `time.localtime()`, and inside the container that is UTC,
+    not the site's timezone — Mildura is at 142°E, so true solar noon is ~09:30 UTC, and the
+    modelled curve is about 1.5 h off solar time and 11 h off the host's local clock. It has been
+    like that since M1b and nobody noticed because the site looked plausible either way. Not fixed
+    here: `SOLAR_CLOCK_HOUR` pins the curve for a demo, and the honest fix is a `TZ`/longitude-aware
+    solar position, which is a modelling change, not a bug fix. Recorded so the next person does
+    not "discover" it and think the pipeline is lying.

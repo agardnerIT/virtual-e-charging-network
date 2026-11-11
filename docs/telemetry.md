@@ -227,7 +227,11 @@ The whole island is **one** Modbus device polled by **one** poller through **one
 which is the same shape as every other site: the difference is what the register file contains, not
 how the telemetry moves.
 
-**Mildura** — inverter, 28 series. AC side (`current`, `voltage`, `voltage_line`, `frequency`,
+**Mildura** — inverter, 32 series. Since #23 the family also carries the irradiance split
+(`energy_pv_irradiance_diffuse_watts_per_m2`, `..._direct_...`), the step-up transformer
+temperature (`energy_pv_transformer_temperature_celsius`) and the ride-through values from model
+129 (`energy_inverter_ride_through_voltage_percent`, `..._time_milliseconds`,
+`energy_inverter_ride_through_state_ratio`). AC side (`current`, `voltage`, `voltage_line`, `frequency`,
 `power.real`, `power.apparent`, `power.reactive`, `power_factor`, `energy`), DC side (`dc.current`,
 `dc.voltage`, `dc.power`, `dc.energy`), per-tracker (`mppt.current`, `mppt.voltage`, `mppt.power`,
 `mppt.temperature` with `energy_mppt`), temperatures (`temperature.cabinet`,

@@ -70,6 +70,14 @@ DEADBAND = {
     "voltage.line": 0.3,        # V
     "irradiance": 2.0,          # W/m2
     "irradiance.poa": 2.0,      # W/m2
+    # #23: the irradiance split, the transformer temperature and the ride-through values.
+    "irradiance.diffuse": 2.0,   # W/m2
+    "irradiance.direct": 2.0,    # W/m2
+    "temperature.transformer": 0.1,  # degC - a big mass moves slowly
+    "event.vendor": 0.0,         # a bitfield: report on change only
+    "ride_through.voltage": 0.0,  # a connection-agreement constant
+    "ride_through.time": 0.0,     # ms, also constant
+    "ride_through.state": 0.0,    # 1 or 0
     "temperature.module": 0.1,  # degC
     "temperature.ambient": 0.1,  # degC
     # Microgrid-side groups (M3-2). The battery's state of charge is the most expensive
