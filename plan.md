@@ -58,10 +58,17 @@ Three audiences, in priority order:
 **Out of scope (at least initially)**
 
 - Real hardware of any kind. No physical chargers, inverters, meters or PLCs.
-- Full IEC 61850 (MMS/GOOSE/Sampled Values) stack. Substation automation is represented by a
-  gateway that emits OTLP with realistic IEC 61850-style measurements and quality.
+- Full IEC 61850 (MMS/GOOSE/Sampled Values) stack — out of scope, and **no gateway was built**.
+  ~~Substation automation is represented by a gateway that emits OTLP with realistic IEC 61850-style
+  measurements and quality.~~ *Struck 2026-11-11: nothing in the repo speaks or emulates IEC 61850, and
+  saying so implied a component that does not exist (`docs/standards.md` §7). What the repo actually
+  shows is the part that matters for telemetry — SunSpec/Modbus with an invented quality flag and two
+  timestamps — and adding a fake 61850 gateway would be a claim without a reader.*
 - Real market settlement, real payment processing, real vehicle CAN/ISO 15118 protocol work.
-  ISO 15118 Plug & Charge appears as an identity/certificate *metadata* story, not a protocol implementation.
+  ~~ISO 15118 Plug & Charge appears as an identity/certificate *metadata* story, not a protocol
+  implementation.~~ *Struck 2026-11-11: the charge point carries an `idTag` per bay (OCPP 1.6's own
+  authorisation), which is the identity story; there is no certificate, no contract certificate, no
+  Plug & Charge. Say "idTag", not "15118".*
 - Kubernetes. Docker Compose only (see D13).
 - Industrial protocol breadth on the critical path. **One** southbound device protocol (Modbus/SunSpec)
   plus OCPP teaches every OT telemetry lesson: units, scaling, sign, names, absent timestamps, absent

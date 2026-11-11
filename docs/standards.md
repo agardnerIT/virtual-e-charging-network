@@ -11,12 +11,15 @@ work:
 - **out of scope by decision** — a protocol or behaviour this repo will not implement, with the
   decision that says so (OPC UA, DNP3, IEC 61850, ISO 15118 …).
 - **deferred** — not implemented today, and a pull request implementing it faithfully would be
-  welcome. Only these have issues (#12 is one: `SetChargingProfile`).
+  welcome. Only these have issues, and there are exactly two: **#12** (`SetChargingProfile`, wanted
+  because the M4 highway site needs a capacity cap) and **#23** (the register-level gaps: model 160
+  scale factors, 302/303 points, `EvtVnd`, model 123's curves).
 - **not claimed** — modelled, but explicitly not to the standard. Not a gap; a statement of what
   the numbers mean.
 
-**This file is not a roadmap.** Classifying every gap is #21; until then, treat a bare "not
-implemented" as *out of scope by decision* unless an issue links to it.
+**This file is not a roadmap.** Every gap below carries its class, so a bare "not implemented"
+does not read as a promise. If you want one of the *deferred* items, the two issues above are the
+places to say so.
 
 Fidelity is stated per device. "Subset" means: the points and semantics listed are real,
 the byte layout follows the standard's conventions (integer registers, separate scale-factor
@@ -35,7 +38,7 @@ not pass a SunSpec conformance test.
 | Client/server | Device simulator = server (`pymodbus` 3.16 `StartAsyncTcpServer`); poller = client. |
 | Register base | 40000 (SunSpec convention); the image is 0-based from there. |
 | Read size | The poller reads in chunks of ≤120 registers. Modbus caps a single read at 125 (0x7D) — a 187-register wind image is therefore three reads. |
-| Not implemented | Function codes 01/02/04/05/06/15/16; RTU/ASCII; serial; exceptions beyond "error". |
+| Not implemented (**out of scope**, D4) | Function codes 01/02/04/05/06/15/16; RTU/ASCII; serial; exceptions beyond "error". A read-only poller needs 03 and nothing else. |
 | Honesty note | No timestamp and no quality flag exists anywhere in Modbus. Both are invented downstream, deliberately, and both are the point (plan.md D12, D21). |
 
 ## 2. SunSpec-shaped models
@@ -52,7 +55,9 @@ chain filtering is done by the poller; it reads the whole image and decodes ever
 `A`, `AphA/B/C`, `V`, `VphA/B/C`, `Hz`, `W`, `WphA/B/C`, `VA(+ph)`, `VAR(+ph)`,
 `PF(+ph)`, `TotWhExp`, `TotWhImp`, `TmpCab`, and the `*_SF` registers for each.
 Scale factors: A −1, V −1, Hz −2, W/VA/VAR 0, PF −3, TotWh −3, Tmp −1.
-Not implemented: the full 203 point set (THD, harmonics, demand registers, events).
+Not implemented (**out of scope**): the full 203 point set — THD, harmonics, demand registers,
+events. A meter model is here to carry the sag and the energy register, not to be a power-quality
+analyser.
 
 ### 2.3 Model 103 — Three-phase inverter (subset) — solar site
 `A`, `AphA/B/C`, `PPVphAB/BC/CA`, `PhVphA/B/C`, `W`, `Hz`, `VA`, `VAr`, `PF`, `WH`,
@@ -60,26 +65,30 @@ Not implemented: the full 203 point set (THD, harmonics, demand registers, event
 Scale factors: A 0 (1 A — a 4.2 MVA inverter at 690 V carries ~3.5 kA), V −1, Hz −2,
 W/VA/VAR +3 (kW/kVA/kvar — 4 MW does not fit int16 at 1 W), PF −3, WH −1, Tmp −1.
 `St` is the SunSpec 103 operating-state enum (0 off, 3 sleeping, 4 MPPT, 7 fault).
-Not implemented: the control/curve models (123 is a 2-point subset below), event history,
-the `EvtVnd`/`TmpTrns` points.
+Not implemented: the other control/curve models (**out of scope**), event history (**out of
+scope**), and `EvtVnd`/`TmpTrns` (**deferred** — cheap, and a real device publishes them).
 
 ### 2.4 Model 160 — MPPT (subset, 2 repeating blocks) — solar site
 `ID`, `DCA`, `DCV`, `DCW`, `Tmp` per block. The block **repeats** (`repeats=2`) and the
 poller puts the block index on the wire as `modbus.register.instance`, so two trackers are
 two data points of one metric, not two metric names.
-Not implemented: model 160's per-block scale-factor registers — the points reference the
+Not implemented (**not claimed**, and stated rather than hidden): model 160's per-block
+scale-factor registers — the points reference the
 inverter model's `A_SF`/`V_SF`/`W_SF`/`Tmp_SF`, which in practice carry the same values.
 This is the one place the subset is visible in the byte layout, and it is stated here.
 
 ### 2.5 Models 302 / 303 — Irradiance and temperature (subsets) — solar site
 302: `GH` (global horizontal), `POA` (plane of array), W/m². 303: `TmpBOM` (back of module),
-`TmpAmb`. Not implemented: diffuse/DNI/optical cleanliness (302), the other 303 temperature
-points.
+`TmpAmb`. Not implemented (**deferred**): diffuse/DNI and optical cleanliness (302) and the other
+303 temperature points — each is a register add to `sim/sunspec.py`, and none of them changes a
+claim this repo makes.
 
 ### 2.6 Model 123 — Immediate controls (2-point subset) — solar and wind
 `WMaxLimPct` and `WMaxLimPct_SF`: the export limit as a percentage of nameplate AC.
-This is the point a network operator actually writes. Not implemented: the rest of 123
-(voltage/frequency ride-through curves, connection/ramp-rate controls, timers).
+This is the point a network operator actually writes. Not implemented (**deferred**): the rest of
+123 — voltage/frequency ride-through curves, connection/ramp-rate controls, timers. The
+ride-through *values* are the ones an engineer would actually want; nothing is claimed about
+them.
 
 ### 2.7 Vendor model 64001 — device clock and provenance
 SunSpec reserves 64000+ for vendor extensions. `UnixTime` (the device's own clock),
@@ -155,7 +164,7 @@ The two enums are ours and live here. BESS `St`: 0 idle, 1 charging, 2 dischargi
 - **The island's numbers**: 350 kWp PV, one 300 kW turbine, 300 kW / 500 kWh battery, 150 kW
   base load. A plausible small island, not a copy of any real installation.
 
-### Not implemented at all
+### Not implemented at all (**out of scope** unless marked)
 
 Protection relays, fault current and fault level, phase-angle and unbalanced operation,
 harmonics, black start, islanding detection, reconnection synchronisation, transformer and
@@ -199,11 +208,14 @@ speak the **JSON binding**, because 1.6S needs an XML stack for no benefit and 1
 The frame codec (`ocpp16.py`) is shared by both ends, so the encoder and decoder cannot drift — the same
 rule that makes `sunspec.py` shared by device and poller.
 
-### Deliberately not claimed
+### Deliberately not claimed (**never**, unless an issue says otherwise)
 
-- **Security profiles / TLS / client certificates.** The WebSocket is plain `ws://` inside the OT zone.
-- **Smart charging** (charging profiles, `SetChargingProfile`, load balancing). The derate is the charge
-  point's own response to supply voltage, not an OCPP profile.
+- **Security profiles / TLS / client certificates** (**out of scope**). The WebSocket is plain `ws://`
+  inside the OT zone; TLS would be the first thing to add if this ever left a laptop.
+- **Smart charging** — charging profiles, `SetChargingProfile`, load balancing (**deferred: #12**). The
+  derate is the charge point's own response to supply voltage, not an OCPP profile. This is the one
+  gap on this list that an issue actually wants closed, because a site with a capacity cap is M4's
+  site.
 - **Firmware management, diagnostics, reservations, local auth lists, OCPI, ISO 15118 / Plug & Charge.**
 - **Persistence.** The CSMS is in-memory by design (D34); a restart forgets transactions.
 - **OCPP conformance.** This is a subset, labelled a subset, exercised by two charge points (2 and 12
@@ -252,7 +264,7 @@ to notice.
 
 - IEC 61850 (MMS/GOOSE/SV), DNP3, IEC 60870-5-104, DLMS/COSEM, OPC UA — documented as
   mappings only (plan.md §2, D4).
-- IEC 61400-25 (wind power plant communications) — not implemented; the wind farm is
+- IEC 61400-25 (wind power plant communications) — not implemented (**out of scope**); the wind farm is
   Modbus/SunSpec-shaped, which is what D4 allows and what this file exists to say.
 - SunSpec *conformance*. Subsets are labelled subsets.
 - Real market settlement, real protection settings, real ISO 15118 / OCPP protocol depth.
