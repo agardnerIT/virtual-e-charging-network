@@ -349,6 +349,32 @@ question.** They are three different failures that the same word — "stale" —
 
 ---
 
+### 5.2 What a backend sees after an outage, in plain words
+
+A site loses its WAN for two hours. The edge collector keeps reading its devices and writing batches
+to a disk-backed queue; nothing is lost at the site, and nothing is even *decided* at the site.
+
+When the link comes back, three things are true at once and they are easy to confuse:
+
+1. **The pipeline catches up.** The queue drains, and every batch is replayed under its **original**
+   timestamps — the data belongs to when the electrons moved, not to when it arrived. A collector
+   that re-stamped the replay with "now" would destroy the history to make the chart look tidy.
+2. **The store may not keep it.** Most time-series stores accept samples only within a small
+   out-of-order window. Two hours of backlog arriving at once is *outside* that window, so the store
+   rejects the replay — and the collector cannot tell, because the store's ingest endpoint answers
+   `200` for the request and logs the rejection internally. Measured here: the pipeline lost nothing
+   and the store still showed a gap (`docs/findings.md` #60).
+3. **The gap is honest, but it is not a data-loss incident.** The two failures need two different
+   alarms: "the edge is queuing" is a link problem, and "the store rejected the replay" is a store
+   configuration problem. An operator who cannot tell them apart will ask the wrong team.
+
+What to do about it, in order of cost: order by receive time and accept the gap in the store while
+keeping the full history in the backend of record (what this repo does); or raise the store's
+out-of-order window; or run a real historian at the edge, which is what an OT estate usually does and
+what the disk queue is standing in for.
+
+---
+
 ## 6. What an electrical engineer expects to see on screen
 
 If the HMI doesn't look like this, domain readers will discount everything else:
