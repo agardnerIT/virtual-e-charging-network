@@ -97,7 +97,59 @@ connection point is, and differs from the machine sum by collector and transform
 | Rated power per turbine | 2.5 MW | Modelled machine |
 | Farm rating | 15 MW (6 × 2.5) | Modelled farm |
 
-## 4. Electrical reference numbers
+## 4. Isolated microgrid — vendor models, and what is physics
+
+Same rule as §3: **there is no SunSpec model for a grid-forming battery inverter with a
+frequency reference**, and inventing a 1xx model number would be the one thing a domain reader
+could not forgive. The microgrid's chain is vendor models that follow SunSpec's register
+conventions:
+
+- **64020 — Busbar / grid.** `Hz`, `V`, `RoCoF`, `GridFormingUnit` (which unit is the grid former).
+- **64021 — BESS.** `SoC`, `W` (positive = discharge), `WH` (throughput), `MaxChargeW`,
+  `MaxDischargeW`, `UsableWH`, `St`, `HoldReason`, `TmpCab`.
+- **64022 — Source, repeating (2 blocks).** `SrcID` (1 solar, 2 wind), `W`, `AvailableW`, `Avail`.
+  Repeats exactly like model 160 (MPPT) and the turbine model: one metric, one data point per
+  source, with the source name attached by the edge collector.
+- **64023 — Load.** `LoadW`, `EVW` (the EV block), `BalanceW` (generation − load, before the
+  battery responded).
+
+The two enums are ours and live here. BESS `St`: 0 idle, 1 charging, 2 discharging, 3 hold.
+`HoldReason`: 0 none, 1 SoC high, 2 SoC low, 3 power limit.
+
+### Modelled physics, with the equation
+
+| What | Equation / value | Why it is defensible |
+|---|---|---|
+| Frequency dynamics | `dΔf/dt = (ΔP / S_base) · f_nom / (2H)`, H = 2 s, S_base = 1.5 MW | The swing equation. H = 2 s is deliberately low: an inverter-dominated island has almost no rotating inertia, which is the whole reason its frequency moves. |
+| Grid-forming control | `P = (f_nom − f) / (f_nom · R) · S_base`, R = 2 % | Standard frequency droop. A grid-forming inverter responds to frequency, not to a schedule; that is what the term means. |
+| Battery power limits | ±300 kW, ramped at 400 kW/`h` | An inverter cannot change power instantaneously. The ramp acts on the model's internal 20 Hz step, not on the poll rate. |
+| State of charge | `SoC -= P·h / (η · kWh) · 100`, η = 0.95 one-way | Coulomb counting with a round-trip efficiency. |
+| PV resource | `POA = 1050 · sin(elevation) · cloud`, derated −0.34 %/°C above 25 °C | Same irradiance and temperature model as the solar farm (§2.3). |
+| Wind resource | Cube law between 3 m/s cut-in and 11.5 m/s rated | Same shape as the wind farm (§3). |
+| Efficiency | 95 % round trip, 97–98.5 % inverter | Typical for LFP + a grid-forming inverter. |
+
+### Invented outright, and labelled as such
+
+- **The protection thresholds**: 49.4 Hz load shed, 50.35 Hz curtailment, and their ramp rates.
+  Chosen so the event is visible on a 5 s metric cadence, *not* taken from any standard or from
+  a real microgrid controller's settings.
+- **The load cycle**: a 300 kW EV block, 90 s on, every 240 s. A demo schedule, not a forecast.
+- **The 20 Hz internal integration step** (`sim/site/microgrid.py`). The swing equation is stiff
+  — integrating it once per Modbus scan is numerically unstable and produces a model that
+  oscillates between 46 and 55 Hz, which would be a property of the solver, not of a microgrid.
+  The device therefore runs its own control loop faster than it is polled, like real equipment.
+  This is the one place where the model's time step is a modelling decision worth stating.
+- **The island's numbers**: 350 kWp PV, one 300 kW turbine, 300 kW / 500 kWh battery, 150 kW
+  base load. A plausible small island, not a copy of any real installation.
+
+### Not implemented at all
+
+Protection relays, fault current and fault level, phase-angle and unbalanced operation,
+harmonics, black start, islanding detection, reconnection synchronisation, transformer and
+collector losses, an export market. A real islanded microgrid's hardest problem — supplying a
+fault from inverter-based sources with no rotating machine behind it — is **not represented**.
+
+## 5. Electrical reference numbers
 
 | Quantity | Value | Standard |
 |---|---|---|
@@ -107,8 +159,12 @@ connection point is, and differs from the machine sum by collector and transform
 | Pole-top / feeder voltage class | 22 kV | AS 60038 MV |
 | Solar DC/AC ratio | 5300 kWp / 4200 kVA = 1.26 | Design choice, deliberately high enough to clip |
 | Wind farm export limit | 15 MW | Modelled connection cap |
+| Microgrid busbar | 400 V, 50 Hz nominal | AS 60038 LV, AEMO nominal frequency |
+| Microgrid system base | 1.5 MVA, H = 2 s | Modelled island: low inertia by construction |
+| Microgrid droop | 2 % | Typical grid-forming inverter droop setting |
+| Frequency normal band | 49.85–50.15 Hz | AEMO / NEM normal operating band (drawn on the HMI trend) |
 
-## 5. OCPP 1.6J (M2)
+## 6. OCPP 1.6J (M2)
 
 The charge point (`sim/ocpp/cp.py`) is a client; the CSMS (`sim/ocpp/csms.py`) is a test double. Both
 speak the **JSON binding**, because 1.6S needs an XML stack for no benefit and 1.6J is what is deployed.
@@ -176,10 +232,10 @@ them, because nothing in this repo is a network simulator. A real depot meter wo
 
 Read it the way a CPO would: the charge points are the metered, billing data (per transaction, from
 the CP's own meter values), and M1 is the site's supply meter for its own load. Do not read the two
-together as a balance. §6 lists this as not claimed, and `docs/findings.md` #42 records what it cost
+together as a balance. §7 lists this as not claimed, and `docs/findings.md` #42 records what it cost
 to notice.
 
-## 6. Things this repo does **not** claim
+## 7. Things this repo does **not** claim
 
 - IEC 61850 (MMS/GOOSE/SV), DNP3, IEC 60870-5-104, DLMS/COSEM, OPC UA — documented as
   mappings only (plan.md §2, D4).
@@ -187,6 +243,9 @@ to notice.
   Modbus/SunSpec-shaped, which is what D4 allows and what this file exists to say.
 - SunSpec *conformance*. Subsets are labelled subsets.
 - Real market settlement, real protection settings, real ISO 15118 / OCPP protocol depth.
-- OCPP conformance of any kind — §5 lists what is implemented and what is not.
+- OCPP conformance of any kind — §6 lists what is implemented and what is not.
 - A **power-flow model**. Site meters, inverters and charge points each simulate their own load or
-generation; the meter does not sum the chargers, and no node balances (§5, findings #42).
+generation; the meter does not sum the chargers, and no node balances (§6, findings #42).
+- **Protection, fault level or fault current** anywhere in the stack. Not at the microgrid
+  (§4) and not at the rural site either: the "sag" is a multiplier on a voltage sample, not a
+  network fault, and no protection relay is modelled.

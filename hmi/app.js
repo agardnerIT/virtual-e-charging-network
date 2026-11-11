@@ -144,10 +144,36 @@ const POINTS = {
   energy_windfarm_export_limit_percent: { slot: 'export_limit',   unit: '%',    label: 'Export limit',     decimals: 0, otel: 'energy.windfarm.export_limit' },
   energy_windfarm_curtailment_ratio:    { slot: 'curtailment',    unit: '',     label: 'Curtailment',      decimals: 0, otel: 'energy.windfarm.curtailment', text: 'energy_windfarm_curtailment_text' },
   energy_windfarm_fault_code_ratio:     { slot: 'fault_code',     unit: '',     label: 'Farm fault code',  decimals: 0, otel: 'energy.windfarm.fault_code' },
+
+  // --- isolated microgrid (M3-2, the fifth site) ---
+  // Frequency first: on this site it is the primary signal, not voltage. A grid-forming
+  // inverter holds the busbar at 230 V; nothing holds it at 50.00 Hz.
+  energy_microgrid_frequency_hertz:        { slot: 'frequency',    unit: 'Hz',  label: 'Busbar frequency',   decimals: 3, otel: 'energy.microgrid.frequency' },
+  energy_microgrid_rocof_hertz_per_second: { slot: 'rocof',        unit: 'Hz/s', label: 'RoCoF',             decimals: 3, otel: 'energy.microgrid.rocof' },
+  energy_microgrid_voltage_volts:          { slot: 'voltage',      unit: 'V',   label: 'Busbar voltage',    decimals: 1, otel: 'energy.microgrid.voltage' },
+  energy_microgrid_grid_forming_unit_ratio:{ slot: 'grid_forming', unit: '',    label: 'Grid-forming unit', decimals: 0, otel: 'energy.microgrid.grid_forming_unit' },
+  energy_bess_state_of_charge_percent:     { slot: 'soc',          unit: '%',   label: 'Battery SoC',       decimals: 1, otel: 'energy.bess.state_of_charge' },
+  energy_bess_power_real_watts:            { slot: 'bess_power',   unit: 'W',   label: 'Battery power',     decimals: 0, otel: 'energy.bess.power.real' },
+  energy_bess_energy_kW_h:                 { slot: 'bess_energy',  unit: 'kWh', label: 'Battery throughput', decimals: 0, otel: 'energy.bess.energy' },
+  energy_bess_energy_usable_kW_h:          { slot: 'bess_usable',  unit: 'kWh', label: 'Battery usable',    decimals: 0, otel: 'energy.bess.energy.usable' },
+  energy_bess_power_max_charge_watts:      { slot: 'bess_max_charge', unit: 'W', label: 'Max charge power', decimals: 0, otel: 'energy.bess.power.max_charge' },
+  energy_bess_power_max_discharge_watts:   { slot: 'bess_max_discharge', unit: 'W', label: 'Max discharge power', decimals: 0, otel: 'energy.bess.power.max_discharge' },
+  energy_bess_status_ratio:                { slot: 'bess_status',  unit: '',    label: 'Battery state',     decimals: 0, otel: 'energy.bess.status', text: 'energy_bess_status_text' },
+  energy_bess_hold_reason_ratio:           { slot: 'hold_reason',  unit: '',    label: 'Hold reason',       decimals: 0, otel: 'energy.bess.hold_reason', text: 'energy_bess_hold_reason_text' },
+  energy_bess_temperature_celsius:         { slot: 'temperature',  unit: '\u00b0C', label: 'Battery temperature', decimals: 1, otel: 'energy.bess.temperature' },
+  energy_microgrid_source_power_real_watts:{ slot: 'source_power', unit: 'W',   label: 'Source power',      decimals: 0, otel: 'energy.microgrid.source.power.real' },
+  energy_microgrid_source_power_available_watts: { slot: 'source_available', unit: 'W', label: 'Source available', decimals: 0, otel: 'energy.microgrid.source.power.available' },
+  energy_microgrid_source_availability_ratio: { slot: 'source_availability', unit: '', label: 'Source available flag', decimals: 0, otel: 'energy.microgrid.source.availability' },
+  energy_microgrid_source_id_ratio:        { slot: 'source_id',    unit: '',    label: 'Source id',         decimals: 0, otel: 'energy.microgrid.source.id' },
+  energy_microgrid_load_power_real_watts:  { slot: 'load_power',   unit: 'W',   label: 'Site load',         decimals: 0, otel: 'energy.microgrid.load.power.real' },
+  energy_microgrid_load_power_ev_watts:    { slot: 'ev_power',     unit: 'W',   label: 'EV charging load',  decimals: 0, otel: 'energy.microgrid.load.power.ev' },
+  energy_microgrid_load_power_balance_watts: { slot: 'balance',    unit: 'W',   label: 'Generation minus load', decimals: 0, otel: 'energy.microgrid.load.power.balance' },
 };
 
 //: Slots whose value is a power in W and is drawn in kW on the one-line.
-const POWER_SLOTS = new Set(['power', 'power_s', 'power_q', 'dc_power', 'mppt_power', 'evse_power']);
+const POWER_SLOTS = new Set(['power', 'power_s', 'power_q', 'dc_power', 'mppt_power', 'evse_power',
+  'bess_power', 'bess_max_charge', 'bess_max_discharge', 'source_power', 'source_available',
+  'load_power', 'ev_power', 'balance']);
 
 /* Site templates. The topology is drawn in full — an electrical engineer reads a one-line
    diagram, and hiding the switchgear would make the page look like a JSON viewer. Anything
@@ -175,6 +201,18 @@ const TEMPLATES = {
     assets: ['WTG1', 'WTG2', 'BUSBAR', 'TX1', 'GRID', 'M1'],
     evse: false,
     tx_note: '0.69 / 22 kV',
+  },
+  // An islanded site: no transformer to a grid, no connection point, no export. Sources on
+  // the left, the grid former in the middle, load on the right, and a busbar that is the
+  // only thing tying them together. `trend: 'frequency'` because frequency, not voltage, is
+  // this site's primary signal.
+  microgrid: {
+    summary: 'islanded',
+    sign: 1,
+    assets: ['SOLAR', 'WIND', 'BESS', 'BUSBAR', 'LOAD'],
+    evse: false,
+    trend: 'frequency',
+    v_nominal: 230,
   },
 };
 
@@ -245,14 +283,17 @@ async function prange(expr, seconds, step) {
 
 const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 
-function keyOf(siteId, metric, phase, direction, mppt, plane, turbine, evse) {
+function keyOf(siteId, metric, phase, direction, mppt, plane, turbine, evse, source) {
   // Direction is part of the identity: the site meter keeps separate import and export
   // registers, and keying without it silently loses one of them. The MPPT block number, the
   // irradiance plane, the wind turbine number and the EVSE id are part of it too - dropping
   // them makes tracker 2 (or EVSE02, or session 2) overwrite the first in a Map, which looks
   // exactly like a working page. Session energy is keyed by EVSE for the same reason: two
   // EVSEs charging at once are two series, not one.
-  return `${siteId}|${metric}|${phase || ''}|${direction || ''}|${mppt || ''}|${plane || ''}|${turbine || ''}|${evse || ''}`;
+  // The source name is part of the identity for the same reason: the microgrid's two
+  // repeating source blocks report the same metric name, and keying without it makes the
+  // turbine overwrite the array.
+  return `${siteId}|${metric}|${phase || ''}|${direction || ''}|${mppt || ''}|${plane || ''}|${turbine || ''}|${evse || ''}|${source || ''}`;
 }
 
 async function refresh() {
@@ -262,7 +303,7 @@ async function refresh() {
       // Every site the pipeline has seen, whether or not it has instrumented points yet.
       pq('target_info{energy_site_id!=""}'),
       // Everything instrumented, every site, in one query.
-      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session)_.*",energy_site_id!=""}'),
+      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session|microgrid|bess)_.*",energy_site_id!=""}'),
     ]);
     state.error = null;
   } catch (e) {
@@ -299,7 +340,7 @@ async function refresh() {
     const def = POINTS[metric];
     if (!def) continue;
 
-    const k = keyOf(site.id, metric, m.energy_phase, m.energy_direction, m.energy_mppt, m.energy_irradiance_plane, m.energy_turbine, m.energy_evse_id);
+    const k = keyOf(site.id, metric, m.energy_phase, m.energy_direction, m.energy_mppt, m.energy_irradiance_plane, m.energy_turbine, m.energy_evse_id, m.energy_source_name);
     const point = {
       metric,
       def,
@@ -309,6 +350,7 @@ async function refresh() {
       plane: m.energy_irradiance_plane || null,
       turbine: m.energy_turbine || null,
       evse: m.energy_evse_id || null,
+      source: m.energy_source_name || null,
       value: Number(s.value[1]),
       ts: Number(s.value[0]) * 1000,   // the store's sample time = the hub's receive time
       quality: m.otel_data_point_quality || 'unknown',
@@ -591,6 +633,9 @@ function bound(siteId, slot, phase, opts = {}) {
     if (opts.plane !== undefined && (p.plane || null) !== opts.plane) continue;
     if (opts.turbine !== undefined && (p.turbine || null) !== opts.turbine) continue;
     if (opts.evse !== undefined && (p.evse || null) !== opts.evse) continue;
+    // The microgrid's two source blocks share a metric name, so "which source" is a filter
+    // argument, exactly like "which phase" or "which turbine".
+    if (opts.source !== undefined && (p.source || null) !== opts.source) continue;
     // The site meter keeps separate import and export registers under one slot; without this
     // the panel picked whichever series came back first and the depot's 128 MWh could read as
     // the static 12 kWh export register. Direction is part of a point's identity.
@@ -671,6 +716,7 @@ function renderMimic(site) {
   // there are real points to place, so it gets its own diagram.
   if (!tpl.evse) {
     if (site.kind === 'wind_farm') renderWindMimic(site, tpl, svg);
+    else if (site.kind === 'microgrid') renderMicrogridMimic(site, tpl, svg);
     else renderGenerationMimic(site, tpl, svg);
     return;
   }
@@ -1039,6 +1085,80 @@ function renderWindMimic(site, tpl, svg) {
 
 /* ------------------------------------------------------------------ point list */
 
+/* The microgrid one-line: sources -> busbar -> the grid former -> load.
+   The distinction the issue asks for is drawn, not annotated: the BESS is the grid former and
+   is drawn with a heavy outline and the words "grid-forming"; the two sources are grid-following
+   and are drawn as ordinary boxes. Anything the pipeline does not instrument is dashed. */
+function renderMicrogridMimic(site, tpl, svg) {
+  const v = (slot, opts) => valueOf(site.id, slot, null, opts);
+  const src = (name) => ({
+    power: valueOf(site.id, 'source_power', null, { source: name }),
+  });
+  const solar = src('solar');
+  const wind = src('wind');
+  const F = v('frequency'), ROCOF = v('rocof'), VB = v('voltage');
+  const SOC = v('soc'), PB = v('bess_power'), HOLD = textOf(site.id, 'hold_reason');
+  const BST = textOf(site.id, 'bess_status'), BT = v('temperature');
+  const LOAD = v('load_power'), EV = v('ev_power'), BAL = v('balance');
+
+  const busY = 200;
+  const parts = [];
+
+  const box = (x, y, w, h, cls) => parts.push(`<rect class="${cls}" x="${x}" y="${y}" width="${w}" height="${h}"/>`);
+  const label = (x, y, text, cls = 'tag', anchor = 'start') =>
+    parts.push(`<text class="${cls}" x="${x}" y="${y}" text-anchor="${anchor}">${text}</text>`);
+
+  // --- sources (grid-following: they take the busbar's frequency) ------------
+  const source = (x, tag, note, S) => {
+    box(x, 86, 190, 84, 'asset');
+    label(x + 12, 110, tag);
+    label(x + 12, 130, note, 'note');
+    parts.push(`<text x="${x + 178}" y="158" text-anchor="end">${S.power.html}</text>`);
+    parts.push(`<line class="conductor" x1="${x + 95}" y1="170" x2="${x + 95}" y2="${busY}"/>`);
+  };
+  source(40, 'PV1', 'solar \u00b7 grid-following', solar);
+  source(250, 'WTG1', 'wind \u00b7 grid-following', wind);
+
+  // --- the busbar: the only thing tying the island together -----------------
+  parts.push(`<line class="busbar" x1="40" y1="${busY}" x2="1050" y2="${busY}"/>`);
+  label(545, busY - 12, 'BUSBAR 400 V \u00b7 50 Hz nominal', 'tag', 'middle');
+  parts.push(`<text x="545" y="${busY + 26}" text-anchor="middle">${F.html} \u00b7 RoCoF ${ROCOF.html} \u00b7 ${VB.html}</text>`);
+
+  // --- the grid former: the BESS, drawn differently on purpose --------------
+  box(40, 300, 260, 150, 'asset asset-gridformer');
+  label(56, 326, 'BESS1 \u00b7 grid-forming');
+  label(56, 348, 'it sets the voltage and the frequency', 'note');
+  parts.push(`<line class="conductor" x1="170" y1="${busY}" x2="170" y2="300"/>`);
+  parts.push(`<text x="56" y="378">SoC ${SOC.html}</text>`);
+  parts.push(`<text x="56" y="404">P ${PB.html}</text>`);
+  label(200, 404, 'discharge positive', 'note');
+  parts.push(`<text x="56" y="430">${BST.html} \u00b7 hold ${HOLD.html}</text>`);
+  label(56, 490, `battery ${BT.html}`, 'note');
+
+  // --- the load: the EV block is the step the grid former has to survive ----
+  box(700, 300, 250, 150, 'asset');
+  label(716, 326, 'SITE LOAD');
+  label(716, 348, 'incl. EV charging', 'note');
+  parts.push(`<line class="conductor" x1="825" y1="${busY}" x2="825" y2="300"/>`);
+  parts.push(`<text x="716" y="382">load ${LOAD.html}</text>`);
+  parts.push(`<text x="716" y="408">of which EV ${EV.html}</text>`);
+  parts.push(`<text x="716" y="434">renewables \u2212 load ${BAL.html}</text>`);
+
+  // --- not instrumented, and drawn as such ---------------------------------
+  box(1000, 300, 60, 150, 'asset-off');
+  label(1030, 330, 'CB', 'tag', 'middle');
+  label(1030, 352, 'none', 'note', 'middle');
+  label(1030, 370, 'drawn', 'note', 'middle');
+  label(1030, 388, 'dashed', 'note', 'middle');
+  label(1030, 406, 'not', 'note', 'middle');
+  label(1030, 424, 'modelled', 'note', 'middle');
+
+  label(40, 560, 'Sources are grid-following: they follow what the busbar does. The battery is grid-forming: it decides. That is why frequency moves here and the voltage hardly does.', 'note');
+  label(40, 580, 'No transformer, no connection point, no export: there is nowhere to sell this energy, so surplus is curtailed and deficit sheds load.', 'note');
+
+  svg.innerHTML = parts.join('');
+}
+
 function renderPoints(site) {
   const pts = pointsFor(site.id);
   const body = document.getElementById('points');
@@ -1063,6 +1183,7 @@ function renderPoints(site) {
       + (p.mppt ? ` MPPT ${p.mppt}` : '')
       + (p.turbine ? ` WTG ${p.turbine}` : '')
       + (p.plane ? ` (${p.plane.replace(/_/g, ' ')})` : '')
+      + (p.source ? ` (${p.source})` : '')
       + (p.direction ? ` (${p.direction})` : '');
     return `<tr>
       <td>${name}<br><span class="note">${p.def.otel}${p.direction ? '.' + p.direction : ''}</span></td>
@@ -1094,8 +1215,13 @@ function renderTrend(site) {
   // not 230 V. Hard-coding the LV domestic band would draw every healthy inverter reading as
   // a violation, which is worse than drawing no band at all.
   const tpl = TEMPLATES[site.kind] || {};
-  const vNom = tpl.evse === false ? 398 : 230;
-  const vBand = [vNom * 0.94, vNom * 1.10];
+  const isFreq = tpl.trend === 'frequency';
+  document.getElementById('trend-title').textContent = isFreq ? 'Frequency, 15 minutes' : 'Voltage, 15 minutes';
+  const vNom = tpl.v_nominal || (tpl.evse === false ? 398 : 230);
+  // The band means "normal", and normal is a different question per site: ±6%/+10% voltage
+  // for a distribution site, and the NEM's 49.85-50.15 Hz normal operating band for a
+  // microgrid. Drawing a voltage band over a frequency axis would be a lie with a colour.
+  const vBand = isFreq ? [49.85, 50.15] : [vNom * 0.94, vNom * 1.10];
   const t0 = Math.min(...rows.map((r) => r.values[0][0])) * 1000;
   const t1 = Math.max(...rows.map((r) => r.values[r.values.length - 1][0])) * 1000;
 
@@ -1113,15 +1239,16 @@ function renderTrend(site) {
   for (let i = 0; i <= 3; i++) {
     const v = lo + ((hi - lo) * i) / 3;
     parts.push(`<line class="trend-grid" x1="${L}" y1="${py(v).toFixed(1)}" x2="${W - R}" y2="${py(v).toFixed(1)}"/>`);
-    parts.push(`<text class="trend-axis" x="${L - 6}" y="${(py(v) + 4).toFixed(1)}" text-anchor="end">${v.toFixed(0)}</text>`);
+    parts.push(`<text class="trend-axis" x="${L - 6}" y="${(py(v) + 4).toFixed(1)}" text-anchor="end">${v.toFixed(isFreq ? 2 : 0)}</text>`);
   }
   parts.push(`<rect class="trend-frame" x="${L}" y="${T}" width="${W - L - R}" height="${H - T - B}"/>`);
-  parts.push(`<text class="trend-axis" x="${L - 6}" y="${T - 2}" text-anchor="end">V</text>`);
+  parts.push(`<text class="trend-axis" x="${W - R}" y="${T - 2}" text-anchor="end">${isFreq ? 'Hz' : 'V'}</text>`);
 
   const colour = { L1: 'var(--l1)', L2: 'var(--l2)', L3: 'var(--l3)' };
   const palette = ['#2f6f4f', '#4f7fae', '#b07a2f', '#8a5a9e', '#3f8f8f', '#a04a4a'];
   const labelOf = (m) => m.energy_phase
     || (m.energy_turbine ? `WTG${m.energy_turbine}` : null)
+    || (isFreq ? 'busbar' : null)
     || '\u2014';
   const strokeOf = (m) => colour[m.energy_phase]
     || palette[(Number(m.energy_turbine) || 1) - 1]
@@ -1143,12 +1270,14 @@ function renderTrend(site) {
     parts.push(`<circle cx="${px(last[0] * 1000).toFixed(1)}" cy="${py(Number(last[1])).toFixed(1)}" r="2.5" fill="${stroke}"/>`);
   }
 
-  const leg = rows.map((r) => `${labelOf(r.metric)} ${fmt(Number(r.values[r.values.length - 1][1]), 1)} V`).join('   ');
+  const leg = rows.map((r) => `${labelOf(r.metric)} ${fmt(Number(r.values[r.values.length - 1][1]), isFreq ? 3 : 1)} ${isFreq ? 'Hz' : 'V'}`).join('   ');
   parts.push(`<text class="trend-axis" x="${L}" y="${H - 8}">${leg}</text>`);
   parts.push(`<text class="trend-axis" x="${W - R}" y="${H - 8}" text-anchor="end">15 min, 5 s steps</text>`);
 
   svg.innerHTML = parts.join('');
-  note.textContent = `Shaded band is the AS 60038 utilisation range (0.94\u20131.10 pu of ${vNom} V phase-neutral = ${vBand[0].toFixed(0)}\u2013${vBand[1].toFixed(0)} V). One series per phase; a break in a line is missing data, not a straight-line guess.`;
+  note.textContent = isFreq
+    ? `Shaded band is the NEM normal operating band (49.85\u201350.15 Hz). This site is islanded: frequency is set by the grid-forming battery, so it moves with the load. A break in the line is missing data, not a straight-line guess.`
+    : `Shaded band is the AS 60038 utilisation range (0.94\u20131.10 pu of ${vNom} V phase-neutral = ${vBand[0].toFixed(0)}\u2013${vBand[1].toFixed(0)} V). One series per phase; a break in a line is missing data, not a straight-line guess.`;
 }
 
 /* ------------------------------------------------------------------ views */
@@ -1201,6 +1330,21 @@ async function openSite(id) {
 }
 
 async function loadTrend(id) {
+  const site = state.sites.get(id);
+  const tpl = site ? TEMPLATES[site.kind] : null;
+  if (tpl && tpl.trend === 'frequency') {
+    // This site's story is frequency, and one series is the whole story. Voltage is on the
+    // one-line and in the point table; a voltage trend here would show a flat line and teach
+    // the reader nothing.
+    try {
+      // One logical signal, so collapse the series a poller restart mints (a new
+      // service.instance.id is a new series - docs/findings.md #12). Without this the legend
+      // draws the same frequency three times, which looks like three measurements.
+      state.trend = await prange(
+        `max without (instance) (energy_microgrid_frequency_hertz{energy_site_id="${id}"})`, 900, 5);
+    } catch { state.trend = []; }
+    return;
+  }
   try {
     // The inverter measures its own AC voltage, so a generation site has no `energy_meter_
     // voltage`; match both rather than special-casing the site here.

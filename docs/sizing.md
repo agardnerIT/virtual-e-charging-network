@@ -5,12 +5,13 @@ arm64 only. Every number below was measured by running the stack. Re-run `make s
 change that affects the footprint and update this file.
 
 **Host:** Apple M2, 8 GB, arm64 (Docker Desktop, `arm64` images only).
-**Stack:** M3 — 4 edge collectors (rural, solar, wind, metro), 1 hub, the impaired link,
-the rural SunSpec/Modbus meter + poller, the solar SunSpec/Modbus inverter + poller, the
-wind farm's SunSpec-shaped 6-turbine device + poller, the depot's meter + poller (all four
-devices and all four pollers are the *same image*), two OCPP 1.6J charge points (2 bays rural,
-12 bays depot) with a CSMS test double per site, plus the local visual stack (Prometheus,
-Jaeger, our own HMI). `telemetrygen` is gone from the default path.
+**Stack:** M3 — 5 edge collectors (rural, solar, wind, metro, microgrid), 1 hub, the impaired
+link, the rural SunSpec/Modbus meter + poller, the solar SunSpec/Modbus inverter + poller, the
+wind farm's SunSpec-shaped 6-turbine device + poller, the depot's meter + poller, and the
+island's microgrid controller + poller (all five devices and all five pollers are the *same
+image*), two OCPP 1.6J charge points (2 bays rural, 12 bays depot) with a CSMS test double per
+site, plus the local visual stack (Prometheus, Jaeger, our own HMI). `telemetrygen` is gone from
+the default path.
 
 ## Two numbers, and why both are here
 
@@ -120,6 +121,41 @@ leak — it is unchanged from M2 and it is the one number in this table that is 
 So the whole four-site stack is **1 094 MiB**: 230 MiB more than the three-site number above, of
 which ~57 MiB is the fourth site's collector and ~6 MiB per OCPP pair. Still comfortably inside
 D10's 3 GB, with 1.9 GB left for the real backend recipes.
+
+### M3-2 delta: the fifth site, the island (2026-11-11, `docker stats`)
+
+A microgrid is one device, one poller and one edge collector — the same three containers as any
+other site, because a site is an environment, not a code path (D10). Measured with the whole
+five-site stack running (`make stats`), 24 containers in total:
+
+| Component | Purpose | `docker stats` |
+|---|---|---|
+| `edge-microgrid` | edge collector, island (OT zone) | 45.4 MiB |
+| `device-microgrid` | busbar + BESS + 2 sources + load, 110 registers | 21.8 MiB |
+| `poller-microgrid` | same poller, `DEVICE_KIND=microgrid` (fresh process) | 34.1 MiB |
+| **Total, whole stack** (24 containers) | | **1 048 MiB (1.02 GiB)** |
+
+The whole five-site stack is **1 048 MiB** — *lower* than the four-site figure of 1 094 MiB, which
+is not a contradiction and is worth understanding before quoting either: the pollers are the largest
+single source of variance in this stack (see "Poller memory" below), and the four-site measurement
+caught three long-running pollers at 68–125 MiB while this one caught a fresh one at 34 MiB. The
+honest reading is that the *site cost* is ~100 MiB and the *stack total* is 1.0–1.1 GiB depending on
+how long the pollers have been running. Still comfortably inside D10's 3 GB, with ~2 GB spare.
+
+The island's series cost is 27 series in 23 families (D40), measured with
+`make prom Q='count by (energy_site_name) ({__name__=~"energy_.*"})'`:
+
+```
+ 27   Kangaroo Island Microgrid
+ 90   Snowtown Wind Farm
+ 40   Mildura Solar Farm
+112   Tottenham Metro Depot
+ 41   Broken Hill EV Charging Site
+```
+
+The four source metrics carry *two data points each* (`energy_source_name` = solar, wind) rather
+than being two metric names, which is the same repeating-block decision as model 160 (MPPT) and the
+turbine model — and it is why 23 families cost 27 series rather than 31.
 
 ### M2 delta, measured 2026-10-15 with `docker stats`
 

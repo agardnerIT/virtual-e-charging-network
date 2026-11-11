@@ -416,3 +416,11 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .tick { animation: none; }
 }
+
+/* The grid-forming unit on a microgrid one-line. Deliberately different from every other
+   asset: on this site the battery is not another box on the busbar, it is the thing that
+   holds the busbar up. A heavier stroke is how a one-line drawing says that. */
+.asset-gridformer {
+  stroke: var(--l2, #4f7fae);
+  stroke-width: 2.6;
+}

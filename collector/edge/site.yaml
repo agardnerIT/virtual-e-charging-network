@@ -286,6 +286,86 @@ processors:
           - set(attributes["energy.windfarm.curtailment.text"], "export_limited")  where metric.name == "energy.windfarm.curtailment" and value_double == 1
           - set(attributes["energy.windfarm.curtailment.text"], "connection_cap")  where metric.name == "energy.windfarm.curtailment" and value_double == 2
 
+  # ------------------------------------------------------------------------------------
+  # THE MICROGRID NORMALISATION CHAIN (M3-2, the fifth site). Same shape as the three above,
+  # and in the same shared file, because a site gets exactly one device: statements that do
+  # not match do nothing.
+  #
+  # What is different about this site, and why it is visible in the names: there is no
+  # feeder, so nothing here is called `meter`. The busbar carries *frequency* as its primary
+  # signal (`energy.microgrid.frequency`), the battery is the grid former
+  # (`energy.microgrid.grid_forming_unit`), and the two renewable blocks repeat with a
+  # source name as the dimension.
+  # ------------------------------------------------------------------------------------
+  transform/microgrid:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          # 1a. TAG NAMES.
+          - set(metric.name, "energy.microgrid.frequency")        where metric.name == "modbus.microgrid.hz"
+          - set(metric.name, "energy.microgrid.voltage")          where metric.name == "modbus.microgrid.v"
+          - set(metric.name, "energy.microgrid.rocof")            where metric.name == "modbus.microgrid.rocof"
+          - set(metric.name, "energy.microgrid.grid_forming_unit") where metric.name == "modbus.microgrid.gridformingunit"
+          - set(metric.name, "energy.bess.state_of_charge")       where metric.name == "modbus.bess.soc"
+          - set(metric.name, "energy.bess.power.real")            where metric.name == "modbus.bess.w"
+          - set(metric.name, "energy.bess.energy")                where metric.name == "modbus.bess.wh"
+          - set(metric.name, "energy.bess.power.max_charge")      where metric.name == "modbus.bess.maxchargew"
+          - set(metric.name, "energy.bess.power.max_discharge")   where metric.name == "modbus.bess.maxdischargew"
+          - set(metric.name, "energy.bess.energy.usable")         where metric.name == "modbus.bess.usablewh"
+          - set(metric.name, "energy.bess.status")                where metric.name == "modbus.bess.st"
+          - set(metric.name, "energy.bess.hold_reason")           where metric.name == "modbus.bess.holdreason"
+          - set(metric.name, "energy.bess.temperature")           where metric.name == "modbus.bess.tmpcab"
+          - set(metric.name, "energy.microgrid.source.id")        where metric.name == "modbus.source.srcid"
+          - set(metric.name, "energy.microgrid.source.power.real")      where metric.name == "modbus.source.w"
+          - set(metric.name, "energy.microgrid.source.power.available") where metric.name == "modbus.source.availablew"
+          - set(metric.name, "energy.microgrid.source.availability")    where metric.name == "modbus.source.avail"
+          - set(metric.name, "energy.microgrid.load.power.real")     where metric.name == "modbus.microgridload.loadw"
+          - set(metric.name, "energy.microgrid.load.power.ev")       where metric.name == "modbus.microgridload.evw"
+          - set(metric.name, "energy.microgrid.load.power.balance")  where metric.name == "modbus.microgridload.balancew"
+
+          # 1b. UNITS.
+          - set(metric.unit, "Hz")    where metric.name == "energy.microgrid.frequency"
+          - set(metric.unit, "V")     where metric.name == "energy.microgrid.voltage"
+          - set(metric.unit, "Hz/s")  where metric.name == "energy.microgrid.rocof"
+          - set(metric.unit, "%")     where metric.name == "energy.bess.state_of_charge"
+          - set(metric.unit, "W")     where IsMatch(metric.name, "^energy\\.(bess\\.power\\.(real|max_charge|max_discharge)|microgrid\\.(source\\.power\\.(real|available)|load\\.power\\.(real|ev|balance)))$")
+          - set(metric.unit, "kW.h")  where IsMatch(metric.name, "^energy\\.bess\\.energy(\\.usable)?$")
+          - set(metric.unit, "Cel")   where metric.name == "energy.bess.temperature"
+          - set(metric.unit, "1")     where IsMatch(metric.name, "^energy\\.(bess\\.(status|hold_reason)|microgrid\\.(grid_forming_unit|source\\.(id|availability)))$")
+
+          # 1c. DESCRIPTIONS. A metric without one is a metric nobody trusts.
+          - set(metric.description, "Busbar frequency, set by the grid-forming battery inverter. Not held at 50.00 Hz, it moves with the load/generation imbalance (droop control, 2% here).") where metric.name == "energy.microgrid.frequency"
+          - set(metric.description, "Busbar voltage. Held by the grid former, so it dips far less under load than a weak rural feeder does.") where metric.name == "energy.microgrid.voltage"
+          - set(metric.description, "Rate of change of frequency. Low inertia is the signature of an inverter-based island.") where metric.name == "energy.microgrid.rocof"
+          - set(metric.description, "State of charge of the grid-forming battery.") where metric.name == "energy.bess.state_of_charge"
+          - set(metric.description, "Battery power. Positive is discharge into the busbar, negative is charging from surplus generation.") where metric.name == "energy.bess.power.real"
+          - set(metric.description, "Lifetime energy throughput of the battery, charge plus discharge.") where metric.name == "energy.bess.energy"
+          - set(metric.description, "The battery is at its power limit and cannot do more about the imbalance, so frequency is free to move.") where metric.name == "energy.bess.hold_reason"
+          - set(metric.description, "Real power from one source block. energy.source.name says which (solar or wind).") where metric.name == "energy.microgrid.source.power.real"
+          - set(metric.description, "What that source could have produced. The gap to the delivered value is curtailment.") where metric.name == "energy.microgrid.source.power.available"
+          - set(metric.description, "Real power drawn by the site, including EV charging. Positive is load.") where metric.name == "energy.microgrid.load.power.real"
+          - set(metric.description, "Power drawn by the EV block alone. This is the load step the grid former has to survive.") where metric.name == "energy.microgrid.load.power.ev"
+          - set(metric.description, "Generation minus load *before* the battery responded. Positive is surplus.") where metric.name == "energy.microgrid.load.power.balance"
+
+      # 2. THE SOURCE NAME. The repeating block index becomes a name, because "which source"
+      #    is a semantic question the device answers with an integer and the edge collector
+      #    answers with a word (D20).
+      - context: datapoint
+        statements:
+          - set(attributes["energy.source.name"], "solar") where IsMatch(metric.name, "^energy\\.microgrid\\.source\\.") and attributes["modbus.register.instance"] == 1
+          - set(attributes["energy.source.name"], "wind")  where IsMatch(metric.name, "^energy\\.microgrid\\.source\\.") and attributes["modbus.register.instance"] == 2
+          - delete_key(attributes, "modbus.register.instance") where IsMatch(metric.name, "^energy\\.microgrid\\.source\\.")
+          - set(attributes["energy.microgrid.grid_forming_source"], "bess") where metric.name == "energy.microgrid.grid_forming_unit"
+          - set(attributes["energy.bess.status.text"], "idle")        where metric.name == "energy.bess.status" and value_double == 0
+          - set(attributes["energy.bess.status.text"], "charging")    where metric.name == "energy.bess.status" and value_double == 1
+          - set(attributes["energy.bess.status.text"], "discharging") where metric.name == "energy.bess.status" and value_double == 2
+          - set(attributes["energy.bess.status.text"], "hold")        where metric.name == "energy.bess.status" and value_double == 3
+          - set(attributes["energy.bess.hold_reason.text"], "none")        where metric.name == "energy.bess.hold_reason" and value_double == 0
+          - set(attributes["energy.bess.hold_reason.text"], "soc-high")    where metric.name == "energy.bess.hold_reason" and value_double == 1
+          - set(attributes["energy.bess.hold_reason.text"], "soc-low")     where metric.name == "energy.bess.hold_reason" and value_double == 2
+          - set(attributes["energy.bess.hold_reason.text"], "power-limit") where metric.name == "energy.bess.hold_reason" and value_double == 3
+
   # Renaming four per-phase points onto one semantic metric leaves four metrics that share a
   # name; groupbyattrs merges them into one metric with one data point per phase. Without this
   # the hub shows energy.meter.voltage three times, which is the same data modelled three times.
@@ -340,7 +420,7 @@ service:
       exporters: [otlp/hub]
     metrics:
       receivers: [otlp]
-      processors: [resource/site, transform/meter, transform/inverter, transform/wind, groupbyattrs/meter, batch]
+      processors: [resource/site, transform/meter, transform/inverter, transform/wind, transform/microgrid, groupbyattrs/meter, batch]
       exporters: [otlp/hub]
     logs:
       receivers: [otlp]

@@ -72,6 +72,22 @@ DEADBAND = {
     "irradiance.poa": 2.0,      # W/m2
     "temperature.module": 0.1,  # degC
     "temperature.ambient": 0.1,  # degC
+    # Microgrid-side groups (M3-2). The battery's state of charge is the most expensive
+    # number to lose and the cheapest to report: 0.5 % is well below anything an operator
+    # acts on, and the four-minute load cycle moves it by several percent.
+    "state_of_charge": 0.5,     # %
+    "rocof": 0.002,             # Hz/s - resolution of the device's own register
+    "grid_forming": 0.0,        # 1 - which unit is the grid former; it never changes
+    "power.max_charge": 0.0,    # W - a nameplate limit, not a measurement
+    "power.max_discharge": 0.0, # W
+    "energy.usable": 0.0,       # kWh - nameplate
+    "source.id": 0.0,           # 1 - an identifier
+    "power.available": 5.0,     # W - what a source could make; moves with the resource
+    "availability": 0.0,        # 1
+    "power.ev": 5.0,            # W
+    "power.balance": 5.0,       # W
+    "status": 0.0,              # 1 - a state, reported on change only
+    "hold_reason": 0.0,         # 1
 }
 
 #: Emit a value that has not moved, occasionally, so a consumer can tell "steady" from
@@ -80,6 +96,14 @@ HEARTBEAT_S = 60.0
 
 #: A reading whose device clock is older than this is reported as stale rather than good.
 STALE_AFTER_S = 30.0
+
+#: After startup, every point is emitted on every collection for this long. This is not
+#: belt-and-braces: `make up` starts the pollers and the edge collectors together, so the
+#: poller's *first* export can be refused because the edge collector's OTLP receiver is not
+#: listening yet - and a point that never changes (a nameplate limit, a state, the grid-former
+#: id) would then be invisible until the first heartbeat, a minute later. Measured on the
+#: microgrid site: fourteen of twenty series were missing for the first minute (findings).
+STARTUP_ALWAYS_S = 20.0
 
 
 #: Modbus function 03 allows at most 125 registers in one request (0x7D). The M1a meter
@@ -181,6 +205,7 @@ class Emitter:
         self.state = state
         self.last: dict[str, _LastEmitted] = {}
         self.lock = threading.Lock()
+        self.started_at = time.time()
 
     def _attributes(self, point: sunspec.Point, decoded: sunspec.Decoded,
                     quality: str, device_time: int | None) -> dict:
@@ -237,7 +262,9 @@ class Emitter:
                 if previous is not None:
                     unchanged = abs(decoded.value - previous.value) <= deadband
                     heartbeat_due = (now - previous.at) >= HEARTBEAT_S
-                    if unchanged and quality == previous.quality and not heartbeat_due:
+                    starting_up = (now - self.started_at) < STARTUP_ALWAYS_S
+                    if unchanged and quality == previous.quality and not heartbeat_due \
+                            and not starting_up:
                         self.state.suppressed += 1
                         return []
                 self.last[name] = _LastEmitted(decoded.value, quality, now)
@@ -278,6 +305,17 @@ def _device_resource(regmap: sunspec.RegisterMap) -> dict:
             "energy.meter.id": device_id,
             "energy.meter.phases": 3,
             "energy.meter.nominal_voltage": int(_envf("NOMINAL_VOLTAGE", 230.0)),
+        })
+    elif regmap.kind == "microgrid":
+        # The microgrid's resource attributes say what makes it different: a named grid
+        # former, a system base and an inertia constant. Those two numbers are the reason its
+        # frequency moves, so they belong in the telemetry rather than only in a docstring.
+        resource.update({
+            "energy.microgrid.grid_former": "bess",
+            "energy.microgrid.system_base_kw": int(_envf("SYSTEM_BASE_KW", 1500.0)),
+            "energy.microgrid.inertia_h_s": _envf("INERTIA_H", 2.0),
+            "energy.microgrid.nominal_frequency_hz": _envf("NOMINAL_HZ", 50.0),
+            "energy.microgrid.islanded": True,
         })
     else:
         resource.update({

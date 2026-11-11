@@ -352,6 +352,62 @@ WIND_FARM_ENTRIES: list[tuple] = [
     ("FarmAvail",    "uint16", None,        "availability",        None, "1",     None),
 ]
 
+# --------------------------------------------------------------------------------------
+# Microgrid. An islanded site: no feeder, no NEM, its own grid former. The register chain
+# follows the same convention as everything else here - a vendor model per device class,
+# because SunSpec's shipped 100-series models are grid-tied device models and a
+# grid-forming BESS with a frequency reference is not one of them. docs/standards.md says
+# which parts of this are modelled physics and which are invented outright.
+#
+# The shape that matters: the busbar (`grid`) carries frequency and voltage, the BESS is ONE
+# unit that is also the grid former, the two renewable sources repeat (model 160/64022
+# pattern: one metric, one data point per source), and the load is its own block so that
+# "the chargers started" is a fact in the data rather than a footnote in a demo script.
+# --------------------------------------------------------------------------------------
+MICROGRID_GRID_ENTRIES: list[tuple] = [
+    # name,             kind,     sf,             group,           phase, unit,  direction
+    ("Hz",             "int16",  "Hz_SF",        "frequency",     None,  "Hz",   None),
+    ("V",              "int16",  "V_SF",         "voltage",       None,  "V",    None),
+    ("RoCoF",          "int16",  "RoCoF_SF",     "rocof",         None,  "Hz/s", None),
+    ("GridFormingUnit", "uint16", None,          "grid_forming",  None,  "1",    None),
+]
+
+MICROGRID_BESS_ENTRIES: list[tuple] = [
+    ("SoC",            "uint16", "SoC_SF",       "state_of_charge", None, "%",   None),
+    ("W",              "int16",  "W_SF",         "power.real",      None, "W",    None),
+    ("WH",             "acc32",  "WH_SF",        "energy",          None, "kW.h", None),
+    ("MaxChargeW",     "int16",  "W_SF",         "power.max_charge", None, "W",   None),
+    ("MaxDischargeW",  "int16",  "W_SF",         "power.max_discharge", None, "W", None),
+    ("UsableWH",       "int16",  "WH_SF",        "energy.usable",   None, "kW.h", None),
+    ("St",             "uint16", None,            "status",          None, "1",    None),
+    ("HoldReason",     "uint16", None,            "hold_reason",     None, "1",    None),
+    ("TmpCab",         "int16",  "Tmp_SF",       "temperature",     None, "Cel",  None),
+]
+
+MICROGRID_SOURCE_ENTRIES: list[tuple] = [
+    ("SrcID",          "uint16", None,            "source.id",       None, "1",    None),
+    ("W",              "int16",  "W_SF",         "power.real",      None, "W",    None),
+    ("AvailableW",     "int16",  "W_SF",         "power.available", None, "W",    None),
+    ("Avail",          "uint16", None,            "availability",    None, "1",    None),
+]
+
+MICROGRID_LOAD_ENTRIES: list[tuple] = [
+    ("LoadW",          "int16",  "W_SF",         "power.real",      None, "W",    None),
+    ("EVW",            "int16",  "W_SF",         "power.ev",        None, "W",    None),
+    ("BalanceW",       "int16",  "W_SF",         "power.balance",   None, "W",    None),
+]
+
+MICROGRID_SCALE_FACTORS: dict[str, int] = {
+    "V_SF": -1,             # 0.1 V
+    "Hz_SF": -2,            # 0.01 Hz - the resolution a protection relay actually sees
+    "RoCoF_SF": -3,         # 0.001 Hz/s
+    "W_SF": 3,              # kW: a 250 kW battery and a 400 kW load both fit int16
+    "WH_SF": -1,            # 0.1 kWh
+    "Tmp_SF": -1,           # 0.1 degC
+    "SoC_SF": -1,           # 0.1 %
+}
+
+
 WIND_SCALE_FACTORS: dict[str, int] = {
     "A_SF": 0,              # 1 A: a 2.5 MW turbine at 690 V carries ~2 kA
     "V_SF": -1,             # 0.1 V
@@ -412,10 +468,18 @@ class RegisterMap:
         return img
 
     def _model_string(self) -> str:
-        return "SIM-METER-3P-WYE" if self.kind == "meter" else "SIM-INVERTER-3P"
+        return {
+            "meter": "SIM-METER-3P-WYE",
+            "inverter": "SIM-INVERTER-3P",
+            "microgrid": "SIM-MICROGRID-1",
+        }.get(self.kind, "SIM-INVERTER-3P")
 
     def _serial(self) -> str:
-        return "SIM0000000000001" if self.kind == "meter" else "SIMINV0000000001"
+        return {
+            "meter": "SIM0000000000001",
+            "inverter": "SIMINV0000000001",
+            "microgrid": "SIMMG0000000001",
+        }.get(self.kind, "SIMINV0000000001")
 
     # -- codec -------------------------------------------------------------------------
     def encode(
@@ -571,6 +635,23 @@ WIND_MAP = _build_map(
      "vendor": "modbus.vendor"},
 )
 MAPS["windfarm"] = WIND_MAP
+
+#: The M3-2 isolated microgrid: model 1, the busbar, the grid-forming BESS, two repeating
+#: sources (solar, wind) and the load. No model 123 and no export limit: an islanded site
+#: has nothing to export to, so a curtailment control would be a control with no reader.
+MICROGRID_MAP = _build_map(
+    "microgrid",
+    [Model(1, "common", (), length=COMMON_LEN),
+     Model(64020, "grid", tuple(MICROGRID_GRID_ENTRIES)),
+     Model(64021, "bess", tuple(MICROGRID_BESS_ENTRIES)),
+     Model(64022, "source", tuple(MICROGRID_SOURCE_ENTRIES), repeats=2),
+     Model(64023, "load", tuple(MICROGRID_LOAD_ENTRIES)),
+     Model(64001, "vendor", tuple(_VENDOR_ENTRIES))],
+    MICROGRID_SCALE_FACTORS,
+    {"grid": "modbus.microgrid", "bess": "modbus.bess", "source": "modbus.source",
+     "load": "modbus.microgridload", "vendor": "modbus.vendor"},
+)
+MAPS["microgrid"] = MICROGRID_MAP
 
 
 def map_for(kind: str) -> RegisterMap:

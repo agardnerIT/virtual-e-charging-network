@@ -271,6 +271,8 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send(200, model.fault.snapshot())
         elif self.path == "/curtail" and hasattr(model, "curtail"):
             self._send(200, model.curtail.snapshot())
+        elif self.path == "/load" and hasattr(model, "loadstep"):
+            self._send(200, model.loadstep.snapshot())
         else:
             self._send(404, {"error": "not found"})
 
@@ -293,6 +295,16 @@ class _ControlHandler(BaseHTTPRequestHandler):
             )
             LOG.warning("EXPORT LIMIT set to %.1f%% of nameplate", state["export_limit_pct"])
             self._send(202, {"accepted": True, "curtail": state})
+        elif path == "/load/step" and hasattr(model, "loadstep"):
+            # Not a fault (D29 keeps exactly one of those): an EV block closing its
+            # contactors, which is what an islanded grid actually has to survive.
+            state = model.loadstep.set_step(
+                kw=float(body.get("kw", 380.0)),
+                duration_s=body.get("duration_s"),
+            )
+            LOG.warning("LOAD STEP: +%.0f kW for %s", state["step_kw"],
+                        f"{state['remaining_s']}s" if state["remaining_s"] else "ever")
+            self._send(202, {"accepted": True, "load_step": state})
         else:
             self._send(404, {"error": "not found"})
 
@@ -304,6 +316,9 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._send(200, {"cleared": True})
         elif path == "/curtail" and hasattr(model, "curtail"):
             model.curtail.clear()
+            self._send(200, {"cleared": True})
+        elif path == "/load/step" and hasattr(model, "loadstep"):
+            model.loadstep.clear()
             self._send(200, {"cleared": True})
         else:
             self._send(404, {"error": "not found"})
@@ -377,6 +392,39 @@ def main() -> None:
             skew_s=_envf("DEVICE_CLOCK_SKEW_S", -2.0),
             word_order=word_order,
             energy_base_kwh=_envf("ENERGY_BASE_KWH", 8_050_000.0),
+        )
+    elif kind == "microgrid":
+        from microgrid import MicrogridModel
+
+        model = MicrogridModel(
+            device_id=device_id,
+            regmap=regmap,
+            pv_kwp=_envf("PV_KWP", 300.0),
+            wind_rated_kw=_envf("WIND_RATED_KW", 900.0),
+            bess_kwh=_envf("BESS_KWH", 500.0),
+            bess_max_charge_kw=_envf("BESS_MAX_CHARGE_KW", 250.0),
+            bess_max_discharge_kw=_envf("BESS_MAX_DISCHARGE_KW", 250.0),
+            bess_soc_pct=_envf("BESS_SOC_INIT_PCT", 62.0),
+            load_base_kw=_envf("LOAD_BASE_KW", 140.0),
+            ev_step_kw=_envf("EV_STEP_KW", 380.0),
+            ev_cycle_s=_envf("EV_CYCLE_S", 240.0),
+            ev_on_s=_envf("EV_ON_S", 90.0),
+            nominal_voltage=_envf("NOMINAL_VOLTAGE", 230.0),
+            nominal_hz=_envf("NOMINAL_HZ", 50.0),
+            system_base_kw=_envf("SYSTEM_BASE_KW", 1000.0),
+            inertia_h=_envf("INERTIA_H", 2.0),
+            droop_r=_envf("DROOP_R", 0.04),
+            soc_min_pct=_envf("SOC_MIN_PCT", 12.0),
+            soc_max_pct=_envf("SOC_MAX_PCT", 98.0),
+            shed_hz=_envf("SHED_HZ", 49.4),
+            curtail_hz=_envf("CURTAIL_HZ", 50.35),
+            # This site has the worst clock of the five: an islanded microgrid out of range
+            # of any time source, so its log timestamps drift by tens of seconds. That is
+            # also M3-4's territory (D12/D23) and the reason this device is the one the
+            # clock-skew demonstration uses.
+            skew_s=_envf("DEVICE_CLOCK_SKEW_S", -11.0),
+            word_order=word_order,
+            energy_base_kwh=_envf("ENERGY_BASE_KWH", 0.0),
         )
     else:
         model = MeterModel(

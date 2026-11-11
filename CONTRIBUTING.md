@@ -44,7 +44,7 @@ struck through with the replacement noted, never deleted. Add new ones as `D37`,
 
 1. `make up` ends in a picture at <http://127.0.0.1:8091> — and every site's mimic renders
    (2 bay cells at the rural site, 12 at the depot).
-2. `make queues` → four edges at 0.
+2. `make queues` → five edges at 0.
 3. The M1/M2 regressions still pass: `make fault SITE=rural FAULT=voltage-sag`, the deadband still
    suppresses steady registers, stopping `device-rural` turns quality to `comms-lost`, and
    `make spine` still ends in a `PowerLoss` transaction.
@@ -58,9 +58,27 @@ struck through with the replacement noted, never deleted. Add new ones as `D37`,
 ```
 plan.md              decisions log + roadmap (source of truth)
 NEXT.md              the current milestone, and where the work items are tracked
+docs/telemetry.md    what it emits: sites, metrics + split keys, traces, logs, backend swap
+collector/edge/      the only site config: device semantics, quality, timestamps, disk queue
+collector/hub/       the only hub config: two metric pipelines, fan-out to the stores
+impairment/link.sh    the WAN profiles (toxics live here, not in toxiproxy.json - findings #41)
+docs/sites/          per-site essays: rural (load), generation (solar + wind), metro (12 bays)
+docs/hmi.md          the map and the one-line mimic, and how quality is drawn
+docs/ot-primer.md    electrical/OT primer for people who came from IT
 docs/findings.md     the hard-won findings, by area
 docs/standards.md    which spec each device/protocol claims, and how faithfully
 docs/sizing.md       measured RAM/disk, image audit, visual-stack bake-off
 docs/m2-build-log.md the M2 engineering log: what was built, what broke, what was measured
+sim/sunspec.py       the SunSpec-shaped register maps, shared by every device and the poller
+sim/site/            the Modbus TCP devices (meter, PV inverter, wind farm) + control endpoints
+sim/poller/          the Modbus -> OTLP poller (one image, any register map)
+sim/ocpp/            OCPP 1.6J charge point + CSMS test double (frame codec shared by both)
+collector/edge/      one config, parameterised by environment, for every site
+collector/hub/       hub pipeline: receive, shed for the local store, fan out
+hmi/                 the map and the one-line mimic (static files, no build step)
+dashboards/            Prometheus/Jaeger config, and optional Perses provisioning
+impairment/          toxiproxy config + link profiles
+compose/             docker-compose.yml
 tools/shot.js        headless-Chrome screenshot of the HMI, for verifying a mimic without a human
+Makefile
 ```

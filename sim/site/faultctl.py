@@ -5,6 +5,7 @@ the OT zone stays unreachable from the host and nothing new is published:
 
     python faultctl.py voltage-sag
     python faultctl.py voltage-sag --depth 0.6 --duration 30
+    python faultctl.py loadstep --kw 300 --duration 60     # microgrid only
     python faultctl.py clear
     python faultctl.py status
 """
@@ -52,6 +53,13 @@ def main(argv: list[str] | None = None) -> int:
                       help="seconds (default: until cleared)")
     sub.add_parser("uncurtail", help="clear the export limit")
 
+    step = sub.add_parser("loadstep",
+                          help="microgrid only: switch a block of EV load on (not a fault)")
+    step.add_argument("--kw", type=float, default=300.0, help="load step in kW")
+    step.add_argument("--duration", type=float, default=None,
+                      help="seconds (default: until cleared)")
+    sub.add_parser("loadstep-clear", help="remove the load step")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "voltage-sag":
@@ -59,6 +67,10 @@ def main(argv: list[str] | None = None) -> int:
                            {"depth": args.depth, "duration_s": args.duration})
         elif args.command == "curtail":
             out = _request("POST", "/curtail", {"pct": args.pct, "duration_s": args.duration})
+        elif args.command == "loadstep":
+            out = _request("POST", "/load/step", {"kw": args.kw, "duration_s": args.duration})
+        elif args.command == "loadstep-clear":
+            out = _request("DELETE", "/load/step")
         elif args.command == "uncurtail":
             out = _request("DELETE", "/curtail")
         elif args.command == "clear":

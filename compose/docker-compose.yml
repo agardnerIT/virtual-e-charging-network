@@ -57,6 +57,7 @@ networks:
   ot-solar: {}   # solar farm, OT zone
   ot-wind: {}    # wind farm, OT zone
   ot-metro: {}   # metro depot, OT zone
+  ot-microgrid: {}  # isolated microgrid, OT zone (M3-2)
   wan: {}        # the impaired link between site and NOC
   noc: {}        # NOC / IT zone
 
@@ -65,6 +66,7 @@ volumes:
   edge-solar-queue: {}
   edge-wind-queue: {}
   edge-metro-queue: {}
+  edge-microgrid-queue: {}
   prometheus-data: {}
 
 services:
@@ -524,3 +526,88 @@ services:
       CP_METER_INTERVAL_S: "10"
     depends_on: [device-metro, csms-metro, edge-metro]
     networks: [ot-metro]
+
+  # ---- isolated microgrid: solar + wind + BESS, no feeder at all (M3-2) ------------
+  # The fifth site, and the one where a voltage sag means something different: there is no
+  # upstream network to explain it. The site's signature is *frequency*, not voltage -
+  # set by a grid-forming battery inverter instead of by the NEM (D17). One Modbus device,
+  # one poller, one edge collector, in its own OT network with its own link: identical
+  # images and identical edge config to the other four (D10, D16).
+  #
+  # No OCPP charge point here on purpose. The EV load that the grid former has to survive
+  # is a *load* in the device's register file (LoadW/EVW), because a microgrid controller
+  # sees chargers as load, not as a protocol peer. What a bay-level view of the microgrid
+  # would add is already demonstrated at the rural site and the depot.
+  edge-microgrid:
+    <<: *collector
+    user: "0:0"   # image runs as 10001, but the disk-backed queue is a root-owned volume
+    environment:
+      SITE_ID: microgrid-kangaroo-island
+      SITE_NAME: Kangaroo Island Microgrid
+      SITE_KIND: microgrid
+      SITE_LAT: "-35.7750"
+      SITE_LON: "137.2140"
+      HUB_ENDPOINT: toxiproxy:14321
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+      - edge-microgrid-queue:/var/lib/otelcol/queue
+    depends_on: [toxiproxy]
+    networks: [ot-microgrid, wan]
+
+  device-microgrid:
+    <<: *sim
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_KIND: microgrid
+      DEVICE_ID: mg-kangaroo-island-01
+      DEVICE_MODEL: VECN SIM-MICROGRID-1
+      MODBUS_PORT: "5020"
+      HTTP_PORT: "8080"
+      # An islanded site far from any time source: the worst clock of the five, 11 s behind.
+      # That is also why the clock-skew demonstration (M3-4) uses this site - a device clock
+      # that is wrong by tens of seconds is ordinary here, and a backend must not "fix" it.
+      DEVICE_CLOCK_SKEW_S: "-11"
+      NOMINAL_VOLTAGE: "230"
+      NOMINAL_HZ: "50"
+      # The island: 350 kWp of PV, one 300 kW turbine, a 300 kW / 500 kWh battery, and a site
+      # load that steps by 300 kW every four minutes when the EV block starts. Those numbers
+      # are chosen so the battery is sometimes at its limit and sometimes not - a BESS that
+      # never reaches a limit demonstrates nothing.
+      PV_KWP: "350"
+      WIND_RATED_KW: "300"
+      BESS_KWH: "500"
+      BESS_MAX_CHARGE_KW: "300"
+      BESS_MAX_DISCHARGE_KW: "300"
+      BESS_SOC_INIT_PCT: "72"
+      LOAD_BASE_KW: "150"
+      EV_STEP_KW: "300"
+      EV_CYCLE_S: "240"
+      EV_ON_S: "90"
+      # 1.5 MVA system base and 2 s of inertia: an inverter-dominated island with almost no
+      # rotating mass, which is why its frequency moves where the NEM's does not.
+      SYSTEM_BASE_KW: "1500"
+      INERTIA_H: "2"
+      DROOP_R: "0.02"
+      SOC_MIN_PCT: "12"
+      SOC_MAX_PCT: "98"
+      SHED_HZ: "49.4"
+      CURTAIL_HZ: "50.35"
+      SIM_CLOCK_HOUR: "${SOLAR_CLOCK_HOUR:-}"
+    networks: [ot-microgrid]
+
+  poller-microgrid:
+    <<: *sim
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_KIND: microgrid
+      DEVICE_ID: mg-kangaroo-island-01
+      DEVICE_MODEL: VECN SIM-MICROGRID-1
+      MODBUS_HOST: device-microgrid
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-microgrid:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "230"
+    depends_on: [device-microgrid, edge-microgrid]
+    networks: [ot-microgrid]

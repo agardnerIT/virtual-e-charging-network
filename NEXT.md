@@ -30,14 +30,14 @@ either is in progress — it needs a ≥2 h wall-clock outage and no new code.
   no crossed transaction ids, checked against the CSMS's own connector map. The mimic draws the bays
   as a table fed from the pipeline (2 cells at the rural site, 12 at the depot, same drawing). The
   series cost is measured before/after in `docs/sizing.md`; the site meter's load is its own model
-  and does not sum the bays — stated, not faked (`docs/standards.md` §5).
+  and does not sum the bays — stated, not faked (`docs/standards.md` §6).
 - ~1.09 GiB for the whole stack against the 3 GB budget (D10).
 
 Verify it before you change it:
 
 ```bash
 make up                 # ends in a picture at http://127.0.0.1:8091
-make queues             # four edges, all 0
+make queues             # five edges, all 0
 make session-status     # every bay: supply voltage, state, kW, offered A, transaction
 make session-status SITE=metro   # the depot's twelve
 make spine              # sag -> derate -> failed session, in one command

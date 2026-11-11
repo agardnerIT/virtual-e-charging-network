@@ -22,5 +22,11 @@
     "listen": "0.0.0.0:14320",
     "upstream": "hub:4317",
     "enabled": true
+  },
+  {
+    "name": "microgrid-wan",
+    "listen": "0.0.0.0:14321",
+    "upstream": "hub:4317",
+    "enabled": true
   }
 ]

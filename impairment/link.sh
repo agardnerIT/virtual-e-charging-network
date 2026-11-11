@@ -6,6 +6,7 @@
 #   ./impairment/link.sh rural satellite   # 650 ms + 5% loss + 32 kB/s
 #   ./impairment/link.sh rural down        # hard outage
 #   ./impairment/link.sh metro wet         # the depot's own good link: 12 ms +- 4 ms
+#   ./impairment/link.sh microgrid down    # an islanded site loses its uplink, not its grid
 #
 # Every invocation starts from a clean link: existing toxics are removed and the proxy is
 # re-enabled before the new profile is applied. Without that, profiles stack up and a
@@ -13,15 +14,16 @@
 set -euo pipefail
 
 API="${TOXIPROXY:-http://localhost:8474}"
-SITE="${1:?usage: link.sh <rural|solar|wind|metro> <wet|degraded|satellite|down>}"
-PROFILE="${2:?usage: link.sh <rural|solar|wind|metro> <wet|degraded|satellite|down>}"
+SITE="${1:?usage: link.sh <rural|solar|wind|metro|microgrid> <wet|degraded|satellite|down>}"
+PROFILE="${2:?usage: link.sh <rural|solar|wind|metro|microgrid> <wet|degraded|satellite|down>}"
 
 case "$SITE" in
   rural) PROXY=rural-wan ;;
   solar) PROXY=solar-wan ;;
   wind)  PROXY=wind-wan ;;
   metro) PROXY=metro-wan ;;
-  *) echo "unknown site: $SITE (want rural|solar|wind|metro)" >&2; exit 1 ;;
+  microgrid) PROXY=microgrid-wan ;;
+  *) echo "unknown site: $SITE (want rural|solar|wind|metro|microgrid)" >&2; exit 1 ;;
 esac
 
 toxic() { # toxic <name> <type> <json-attributes>
@@ -36,6 +38,19 @@ for _ in $(seq 1 20); do
   curl -s --max-time 2 "$API/proxies" >/dev/null && break
   sleep 0.5
 done
+
+# toxiproxy reads its config once, at start (findings #41). A proxy added to toxiproxy.json
+# while the stack is already running would otherwise be invisible until the next `make up`,
+# so create it on demand. 409 means it already exists, which is the normal case.
+if ! curl -s "$API/proxies/$PROXY" | grep -q '"name"'; then
+  case "$PROXY" in
+    rural-wan) PORT=14317 ;; solar-wan) PORT=14318 ;;
+    wind-wan) PORT=14319 ;; metro-wan) PORT=14320 ;;
+    microgrid-wan) PORT=14321 ;;
+  esac
+  curl -s -X POST "$API/proxies" \
+    -d "{\"name\":\"$PROXY\",\"listen\":\"0.0.0.0:$PORT\",\"upstream\":\"hub:4317\",\"enabled\":true}" >/dev/null
+fi
 
 # --- reset to a clean link ------------------------------------------------------
 for t in $(curl -s "$API/proxies/$PROXY/toxics" \

@@ -1,18 +1,25 @@
 # A two-layer OpenTelemetry collector topology for a virtual e-charging network.
 #
-#   make up        edge collectors + impaired link + hub + 4 real sites + visual stack
+#   make up        edge collectors + impaired link + hub + 5 real sites + visual stack
 #   make ps        what is running
 #   make logs      follow the hub (this is where every site's telemetry lands)
 #   make stats     live CPU/RAM of the whole stack (feeds docs/sizing.md, D10)
 #   make queues    are the edge disk queues draining, and how deep are they
 #   make fault     inject the voltage sag:  make fault SITE=rural FAULT=voltage-sag
 #   make curtail   hold generation export down:  make curtail SITE=solar PCT=60
+#   make step      microgrid only - switch a block of EV load on:  make step KW=300
 #   make link      degrade a site's link:   make link SITE=wind PROFILE=down
 #   make clean     stop and delete everything, including buffered telemetry
 #
 #   SOLAR_CLOCK_HOUR=12 make up   pin the solar sim to a daytime hour (see docs/findings.md)
 #
-# See NEXT.md for the current milestone and plan.md for the decisions.
+# The current milestone and every work item are GitHub issues:
+#   https://github.com/agardnerIT/virtual-e-charging-network/milestones
+# plan.md holds the decisions (D1-D38 and counting); it is the source of truth.
+#
+# Five sites today: rural (weak feeder, 2 bays), solar-mildura, wind-snowtown,
+# metro-tottenham (12 bays, fibre) and microgrid-kangaroo-island (solar + wind + BESS, no
+# feeder, its own grid former - so its signature is frequency, not voltage).
 
 COMPOSE := docker compose -f compose/docker-compose.yml
 TOXIPROXY ?= http://localhost:8474
@@ -27,7 +34,7 @@ JAEGER_PORT ?= 16687
 SOLAR_CLOCK_HOUR ?=
 
 .PHONY: up down ps logs stats queues link fault fault-status profiles clean queue-detail \
-	device-logs poller-logs visual prom hmi curtail \
+	device-logs poller-logs visual prom hmi curtail step microgrid-status \
 	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
 up:
@@ -62,7 +69,7 @@ stats:
 # after recovery: the store-and-forward demonstration in one command.
 queues:
 	@printf '%-14s %9s %9s\n' "edge" "queued" "capacity"
-	@for s in rural solar wind metro; do \
+	@for s in rural solar wind metro microgrid; do \
 	  raw=$$(docker compose -f compose/docker-compose.yml exec -T ops \
 	        wget -qO- http://edge-$$s:8888/metrics 2>/dev/null); \
 	  sz=$$(echo "$$raw" | grep '^otelcol_exporter_queue_size' | awk '{s+=$$2} END{print s+0}'); \
@@ -103,6 +110,27 @@ fault-status:
 PCT ?= 60
 curtail:
 	@$(COMPOSE) exec -T device-$(SITE) python site/faultctl.py curtail --pct $(PCT)
+
+# ---------------------------------------------------------------------------------
+# M3-2: the isolated microgrid. Its event is a load step, not a fault: a block of EV chargers
+# closing its contactors is an operational event, and the island's grid-forming battery has to
+# absorb it. D29 keeps exactly one *fault*, and this is not it.
+#   make step KW=300 DURATION=90    # +300 kW for 90 s, then clear
+#   make step-clear
+#   make microgrid-status           # busbar frequency, BESS power, SoC, hold reason, sources
+# ---------------------------------------------------------------------------------
+KW ?= 300
+DURATION ?=
+
+step:
+	@$(COMPOSE) exec -T device-microgrid python site/faultctl.py loadstep --kw $(KW) \
+	  $(if $(DURATION),--duration $(DURATION),)
+
+step-clear:
+	@$(COMPOSE) exec -T device-microgrid python site/faultctl.py loadstep-clear
+
+microgrid-status:
+	@$(COMPOSE) exec -T device-microgrid python site/faultctl.py status
 
 # ---------------------------------------------------------------------------------
 # M2: a charging session is a trace. Control of the OCPP charge point is exec-only for

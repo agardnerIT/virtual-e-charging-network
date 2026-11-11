@@ -186,7 +186,7 @@ code or config.
 
 42. **Twelve bays next to a 13 kW meter is how a gap becomes visible.** The site meter and the charge
     points are independent models (no power-flow model exists), which was tolerable with one 22 kW
-    bay and is glaring with twelve at 260 kW. Nothing was faked to close it: `docs/standards.md` §5
+    bay and is glaring with twelve at 260 kW. Nothing was faked to close it: `docs/standards.md` §6
     says the meter is its own load and §6 adds power flow to the not-claimed list. The lesson is the
     general one — **a second instance of an asset is an audit of the first**, and M3's whole job is
     to add instances.
@@ -203,3 +203,52 @@ code or config.
     lands at the end of a 600 s transaction (see #29). While twelve sessions were live, the check that
     worked was: one `ocpp.transaction.id` per trace, and the CSMS's own connector→transaction map as
     the independent authority. Both agreed (12/12) before any root had arrived.
+
+45. **Disabling a toxiproxy proxy does not kill an established gRPC stream.** `enabled:false` refuses
+    *new* connections, but an edge that is already connected keeps delivering through the existing
+    HTTP/2 stream — measured: wind samples kept arriving at Prometheus for over a minute after
+    `make link SITE=wind PROFILE=down`, while `make queues` climbed. Two signals disagreeing, and the
+    queue is the honest one. To measure a hard outage, reset the stream too:
+    `docker compose -f compose/docker-compose.yml restart edge-wind`. Restoring the link then drains
+    the queue, and the parked batches are written back under their **original** timestamps — a 100 s
+    outage left no gap in Prometheus (`count_over_time` = 40 samples over the following 4 minutes).
+    The multi-hour case is issue #3. `docs/telemetry.md` §8 has the measured profile table.
+
+46. **A WAN outage and a device outage look nothing alike, and both get called "stale".** A broken
+    link stops *delivery*: `otel.data_point.quality` stays `good`, the edge queue grows, and the store
+    sees nothing new. A stopped device sets `comms-lost` and keeps sending at full rate. An alarm that
+    keys on "no recent samples" fires for the first and misses the second; key on quality for the
+    device and on queue depth for the link.
+
+47. **A self-ignoring PromQL is the worst kind of wrong.** A poller restart mints a new
+    `service.instance.id`, which is a new Prometheus series (#12), so an instant query returns
+    **several** series for one logical signal. Taking `result[0]` gives the value of whichever process
+    Prometheus happens to sort first — measured: frequency read 49.99 Hz while
+    `energy_bess_power_real_watts` read 296 kW, which is not the droop relationship and cannot both be
+    true. **Take the freshest sample** (`max` by sample timestamp, what `tools/*-measure.sh` does) or
+    aggregate with `without (instance)`, and remember the HMI already does newest-wins. The number
+    looked plausible, which is exactly why it took an arithmetic cross-check to catch (D41).
+
+48. **A point that never changes can be invisible for a minute after `make up`.** `make up` starts
+    the pollers and the edge collectors together, so a poller's *first* export can be refused because
+    the edge's OTLP receiver is not listening yet. Every series then waits for its first change or its
+    first heartbeat (`HEARTBEAT_S = 60`), so a deadbanded constant — a nameplate limit, a state, the
+    grid-former id — simply is not there. Measured on the microgrid: **14 of 20 series missing for the
+    first minute**, which looks exactly like a broken transform. Fixed by
+    `STARTUP_ALWAYS_S = 20` in `sim/poller/poller.py`: every point is emitted on every collection for
+    the first 20 s, so a lost first export is recovered at the next 5 s cycle instead of the next
+    minute. This affects every site, not just the new one.
+
+49. **A series total is not an audit, because a site in an outage still counts.** Adding the fifth
+    site left `count({__name__=~"energy_.*"})` at exactly 310 — the same number the README had quoted
+    for four sites — because the wind site's 90 series were inside the store's 5-minute lookback
+    while its link was down, and the metro depot had fewer live sessions than when the figure was
+    taken. Nothing was wrong; the total simply is not what it looks like. Quote **per site**, with the
+    query: `count by (energy_site_name) ({__name__=~"energy_.*"})`.
+
+50. **A stiff differential equation integrated once per poll is a solver bug, not a grid that
+    oscillates.** The first microgrid model updated frequency once per Modbus scan (1 Hz) with H = 2 s.
+    It swung between 46 and 55 Hz: with a closed-loop time constant of ~0.16 s, one Euler step per
+    second is unstable by a factor of six. Fixed by running the device's own control loop at 20 Hz
+    internally, which is also what real equipment does. If a modelled quantity has a time constant
+    shorter than the poll interval, the model must not be stepped at the poll interval.
