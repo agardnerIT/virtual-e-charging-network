@@ -1,0 +1,37 @@
+# Jaeger v2 - itself an OpenTelemetry Collector distribution, which keeps the
+# "collectors are the only agents" claim true all the way into the trace store (D15).
+# In-memory storage: this is a proof of life (D3), not the observability backend.
+#
+# Finding: the jaeger v2 image is distroless-ish and ships *no* default config - the binary
+# is /cmd/jaeger/jaeger-linux and there is no /etc/jaeger. A config must be mounted.
+
+service:
+  extensions: [jaeger_storage, jaeger_query]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [jaeger_storage_exporter]
+
+extensions:
+  jaeger_storage:
+    backends:
+      memory:
+        memory:
+          max_traces: 100000
+  jaeger_query:
+    storage:
+      traces: memory
+    http:
+      endpoint: 0.0.0.0:16686
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+exporters:
+  jaeger_storage_exporter:
+    trace_storage: memory

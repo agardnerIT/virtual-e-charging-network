@@ -1,0 +1,23 @@
+# Perses server config for the bake-off. Based on the image's own default config
+# (database.file, schemas under /etc/perses/cue) plus the provisioning folder, which is
+# what makes Perses' dashboards-as-code story reviewable: the YAML in
+# perses/provisioning/ is the source of truth, not a database an operator edited by hand.
+
+database:
+  file:
+    folder: "/perses"
+    extension: "json"
+
+schemas:
+  panels_path: "/etc/perses/cue/schemas/panels"
+  queries_path: "/etc/perses/cue/schemas/queries"
+  datasources_path: "/etc/perses/cue/schemas/datasources"
+  variables_path: "/etc/perses/cue/schemas/variables"
+  interval: "6h"
+
+security:
+  enable_auth: false
+
+provisioning:
+  folders:
+    - "/etc/perses/provisioning"

@@ -1,0 +1,43 @@
+# A deliberately tiny dashboard: enough to prove the provisioning path and the datasource,
+# not the M1b mimic. The point of putting it in git is that Perses dashboards are YAML.
+#
+# NB the metric name: the OTLP -> Prometheus hop mangles it. `energy.meter.voltage` with
+# unit `V` lands as `energy_meter_voltage_volts`. See docs/sizing.md, bake-off findings.
+kind: Dashboard
+metadata:
+  name: rural-mimic-smoke-test
+  project: vecn
+spec:
+  display:
+    name: Rural site - smoke test
+  duration: 15m
+  layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Rural site
+        items:
+          - x: 0
+            y: 0
+            width: 12
+            height: 8
+            content:
+              $ref: "#/spec/panels/voltage"
+  panels:
+    voltage:
+      kind: Panel
+      spec:
+        display:
+          name: "Voltage (V), per phase"
+        plugin:
+          kind: TimeSeriesChart
+          spec:
+            legend:
+              position: bottom
+        queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: energy_meter_voltage_volts{energy_site_id="rural-brokenhill"}

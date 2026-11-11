@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en-AU">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VECN — network view</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<!-- Type is the one external dependency: engineering-drawing lettering, close to the
+     ISO 3098 / DIN single-stroke face an electrical drawing is lettered in. Falls back to
+     the system sans if the machine is offline; nothing about the page breaks. -->
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@400;500;600&family=Barlow+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to the sites</a>
+
+<header class="rail">
+  <div class="rail-id">
+    <span class="rail-mark">VECN</span>
+    <span class="rail-sub">Virtual E-Charging Network</span>
+  </div>
+  <nav class="rail-views" aria-label="View">
+    <button type="button" id="tab-map" class="tab is-on" aria-current="page">National view</button>
+    <button type="button" id="tab-site" class="tab" disabled>Site mimic</button>
+  </nav>
+  <div class="rail-live">
+    <span id="link-state" class="pill pill-idle">connecting</span>
+    <span id="poll-age" class="rail-age">—</span>
+  </div>
+</header>
+
+<main id="main">
+
+  <!-- ------------------------------------------------ national view -->
+  <section id="view-map" class="view">
+    <div class="map-wrap">
+      <svg id="map" viewBox="0 0 1100 820" role="img"
+           aria-label="Map of Australia showing every site in the network and its live state"></svg>
+      <div class="map-legend">
+        <p class="legend-title">What the colour means</p>
+        <ul>
+          <li><i class="sw sw-live"></i> live — every point arrived recently and reads good</li>
+          <li><i class="sw sw-stale"></i> stale — missed a heartbeat, but the site is still reporting</li>
+          <li><i class="sw sw-down"></i> comms-lost — the device is not answering, or the site has gone silent</li>
+          <li><i class="sw sw-none"></i> not instrumented — no points to trust or distrust</li>
+        </ul>
+        <p class="legend-foot">
+          A value that simply has <em>not changed</em> is not stale. The poller applies a
+          deadband — about a third of all readings never leave the site — and re-sends an
+          unchanged value once a minute so that "steady" can be told from "gone". Trust
+          comes from the quality the edge collector attached, not from how new the number is.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ------------------------------------------------ site mimic -->
+  <section id="view-site" class="view" hidden>
+    <div class="site-head">
+      <button type="button" id="back" class="back">← All sites</button>
+      <div class="site-title">
+        <h1 id="site-name">—</h1>
+        <p id="site-meta" class="site-meta">—</p>
+      </div>
+      <p id="site-note" class="site-note"></p>
+    </div>
+
+    <div class="site-body">
+      <figure class="one-line">
+        <svg id="mimic" viewBox="0 0 1120 620" role="img"
+             aria-label="One-line diagram of the site with live values in place"></svg>
+        <figcaption>
+          One-line diagram. Solid equipment is instrumented and carries live values from the
+          pipeline; dashed equipment exists on this site but has no instrumented point yet, and
+          is drawn that way rather than filled with a plausible number.
+        </figcaption>
+      </figure>
+
+      <aside class="instruments">
+        <section class="panel">
+          <h2>Voltage, 15 minutes</h2>
+          <svg id="trend" viewBox="0 0 540 210" role="img"
+               aria-label="Per-phase voltage trend"></svg>
+          <p class="caption" id="trend-note">Gaps are gaps. Nothing is interpolated across a link outage.</p>
+        </section>
+        <section class="panel">
+          <h2>Point list</h2>
+          <table class="points">
+            <caption class="sr-only">Every instrumented point at this site, newest first</caption>
+            <thead>
+              <tr><th scope="col">Point</th><th scope="col">Value</th><th scope="col">Unit</th><th scope="col">Quality</th><th scope="col">Age</th></tr>
+            </thead>
+            <tbody id="points"></tbody>
+          </table>
+        </section>
+      </aside>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <p>
+    Every value here arrives over OTLP: device → poller → edge collector → impaired link →
+    hub → Prometheus. No view reads a simulator, and no vendor agent is deployed anywhere
+    (<code>plan.md</code> D15, D18).
+  </p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

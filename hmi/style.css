@@ -1,0 +1,397 @@
+/* ---------------------------------------------------------------------------------------
+   VECN operator view.
+
+   The subject is an electrical drawing, so the substrate is drafting paper and the ink is
+   ink. This is deliberately not the near-black observability dashboard: a one-line diagram
+   is a *drawing*, it is read in daylight, and the cliché palette would carry no information.
+   The only saturated colour on the page is a phase (L1/L2/L3, in Australian practice red /
+   white / blue) or a quality state. Nothing else is coloured, so anything coloured matters.
+
+   Type is one family in two widths — engineering lettering, not a coding mono. Values are
+   set in the condensed width with tabular figures so they can be compared down a column.
+   --------------------------------------------------------------------------------------- */
+
+:root {
+  --paper:   #e7e9e3;   /* drafting paper, cool and slightly green: not a cream */
+  --panel:   #f2f3ef;
+  --ink:     #16232b;   /* drawing ink */
+  --ink-2:   #4c5b63;
+  --ink-3:   #7d8981;
+  --rule:    #b9bfb6;
+  --grid:    #d3d8d0;
+
+  --live:    #2f5d43;   /* a running plant reads green in every SCADA package there is */
+  --stale:   #9a6a12;   /* amber: present but not trustworthy */
+  --bad:     #9c3a2a;   /* oxide, never a fire-engine red */
+  --none:    #b3b8b0;
+
+  --l1:      #8e3b2e;
+  --l2:      #6e6f66;
+  --l3:      #2c5a78;
+
+  --ui: "Barlow Semi Condensed", "Helvetica Neue", Arial, sans-serif;
+  --num: "Barlow Condensed", "Helvetica Neue", Arial, sans-serif;
+
+  --hair: 1px solid var(--rule);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+/* A faint drawing grid, at the scale a sheet of graph paper is ruled. Barely visible on
+   purpose: it reads as substrate, not as decoration. */
+body {
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 40px 40px, 40px 40px;
+  background-position: -1px -1px;
+}
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+.skip {
+  position: absolute; left: -9999px;
+}
+.skip:focus {
+  left: 1rem; top: 1rem; z-index: 20;
+  background: var(--ink); color: var(--paper);
+  padding: .5rem .75rem;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- the status rail */
+
+.rail {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: baseline;
+  gap: 2rem;
+  padding: .625rem 1.5rem;
+  background: var(--paper);
+  border-bottom: var(--hair);
+}
+
+.rail-id { display: flex; align-items: baseline; gap: .6rem; }
+.rail-mark {
+  font-family: var(--num);
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: .06em;   /* equipment-tag lettering, not a decorative wordmark */
+}
+.rail-sub { color: var(--ink-2); font-size: .875rem; }
+
+.rail-views { display: flex; gap: 1.25rem; margin-right: auto; }
+
+.tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: .25rem 0;
+  font: inherit;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.tab.is-on { color: var(--ink); border-bottom-color: var(--ink); }
+.tab:disabled { color: var(--ink-3); cursor: default; }
+
+.rail-live { display: flex; align-items: baseline; gap: .75rem; }
+
+.pill {
+  font-size: .8125rem;
+  padding: .125rem .5rem;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+}
+.pill-live  { color: var(--live);  border-color: var(--live); }
+.pill-stale { color: var(--stale); border-color: var(--stale); }
+.pill-bad   { color: var(--bad);   border-color: var(--bad); }
+.pill-idle  { color: var(--ink-3); }
+
+.rail-age { font-family: var(--num); font-size: .9375rem; color: var(--ink-2); }
+
+/* ---------------------------------------------------------------- views */
+
+.view { padding: 1.25rem 1.5rem 0; }
+
+.map-wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 15rem;
+  gap: 2rem;
+  align-items: start;
+}
+
+#map { width: 100%; height: auto; display: block; }
+
+.map-legend { border-left: var(--hair); padding-left: 1.25rem; margin-top: 1rem; }
+.legend-title {
+  font-size: .8125rem;
+  color: var(--ink-2);
+  margin: 0 0 .5rem;
+}
+.map-legend ul { list-style: none; margin: 0; padding: 0; }
+.map-legend li {
+  display: grid;
+  grid-template-columns: 1.25rem 1fr;
+  gap: .5rem;
+  font-size: .875rem;
+  color: var(--ink-2);
+  margin-bottom: .4rem;
+}
+.sw { width: .875rem; height: .875rem; border: 1px solid var(--ink); margin-top: .2rem; }
+.sw-live { background: var(--live); }
+.sw-stale { background: var(--stale); }
+.sw-down { background: var(--bad); }
+.sw-none { background: transparent; border-style: dashed; }
+.legend-foot {
+  margin: .75rem 0 0;
+  padding-top: .6rem;
+  border-top: 1px solid var(--grid);
+  max-width: 34ch;
+  font-size: .8125rem;
+  color: var(--ink-2);
+}
+.legend-foot em { font-style: normal; border-bottom: 1px solid var(--ink-3); }
+
+/* ---------------------------------------------------------------- map drawing */
+
+.land {
+  fill: #dde1da;
+  stroke: var(--ink);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+}
+.land-tas { stroke-width: .9; }
+
+.graticule { stroke: rgba(22, 35, 43, 0.15); stroke-width: .8; fill: none; }
+.tropic { stroke: rgba(22, 35, 43, 0.32); stroke-width: .9; stroke-dasharray: 7 6; }
+.graticule-label { font-family: var(--ui); font-size: 15px; fill: var(--ink-3); }
+
+.marker { cursor: pointer; }
+.marker .hit { fill: transparent; }
+.marker .body { stroke: var(--ink); stroke-width: 1.4; fill: var(--live); }
+.marker .halo { fill: none; stroke-width: 1.2; opacity: .5; }
+.marker.is-selected .body { stroke-width: 2.6; }
+.marker .label {
+  font-family: var(--ui);
+  font-size: 19px;
+  fill: var(--ink);
+}
+.marker .sub {
+  font-family: var(--num);
+  font-size: 20px;
+  fill: var(--ink-2);
+}
+
+/* Quality drives the fill of the marker AND its halo. Never draw stale as live. */
+.marker.q-good       .body, .marker.q-unknown .body { fill: var(--live); }
+.marker.q-stale      .body { fill: var(--stale); }
+.marker.q-comms-lost .body { fill: var(--bad); }
+.marker.q-none       .body { fill: transparent; stroke-dasharray: 5 4; }
+.marker.q-none       .halo { display: none; }
+
+.marker.q-good       .halo { stroke: var(--live); }
+.marker.q-stale      .halo { stroke: var(--stale); }
+.marker.q-comms-lost .halo { stroke: var(--bad); }
+
+.callout line { stroke: var(--ink-3); stroke-width: .8; }
+
+/* ---------------------------------------------------------------- site header */
+
+.site-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  border-bottom: var(--hair);
+  padding-bottom: .875rem;
+}
+.back {
+  appearance: none; background: none; border: 0; padding: .125rem 0;
+  font: inherit; color: var(--ink-2); cursor: pointer; white-space: nowrap;
+}
+.back:hover { color: var(--ink); }
+.site-title h1 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  margin: 0;
+}
+.site-meta {
+  margin: .125rem 0 0;
+  font-family: var(--num);
+  font-size: 1rem;
+  color: var(--ink-2);
+  letter-spacing: .02em;
+}
+.site-note {
+  margin: 0;
+  max-width: 34ch;
+  margin-left: auto;
+  font-size: .875rem;
+  color: var(--ink-2);
+  text-align: right;
+}
+
+.site-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(20rem, 1fr);
+  gap: 2rem;
+  padding-bottom: 2rem;
+}
+
+.one-line { margin: 1rem 0 0; }
+#mimic { width: 100%; height: auto; display: block; }
+.one-line figcaption {
+  margin-top: .75rem;
+  max-width: 68ch;
+  font-size: .8125rem;
+  color: var(--ink-2);
+}
+
+/* ---------------------------------------------------------------- mimic drawing */
+
+.busbar      { stroke: var(--ink); stroke-width: 5; }
+.conductor   { stroke: var(--ink); stroke-width: 1.6; fill: none; }
+.conductor-thin { stroke: var(--ink-2); stroke-width: 1; fill: none; }
+.asset       { fill: var(--panel); stroke: var(--ink); stroke-width: 1.6; }
+.asset-off   { fill: none; stroke: var(--ink-3); stroke-width: 1.2; stroke-dasharray: 6 5; }
+.grid-sym    { stroke: var(--ink); stroke-width: 1.6; fill: none; }
+
+.tag {
+  font-family: var(--num);
+  font-weight: 600;
+  font-size: 21px;
+  fill: var(--ink);
+  letter-spacing: .04em;
+}
+.note {
+  font-family: var(--ui);
+  font-size: 16px;
+  fill: var(--ink-2);
+}
+.note-absent { fill: var(--ink-3); }
+
+.val {
+  font-family: var(--num);
+  font-weight: 600;
+  font-size: 26px;
+  font-variant-numeric: tabular-nums;
+  fill: var(--ink);
+}
+.val-unit { font-family: var(--num); font-size: 18px; fill: var(--ink-2); }
+.val-absent { fill: var(--ink-3); font-weight: 500; }
+
+/* The value itself carries the state. A stale number is drawn stale, in place, where the
+   operator is already looking - not flagged in a corner. */
+.val.q-stale { fill: var(--stale); }
+.val.q-comms-lost { fill: var(--bad); }
+.val.q-unknown { fill: var(--ink-2); }
+
+.phase-L1 { stroke: var(--l1); }
+.phase-L2 { stroke: var(--l2); }
+.phase-L3 { stroke: var(--l3); }
+.phase-dot-L1 { fill: var(--l1); }
+.phase-dot-L2 { fill: var(--l2); }
+.phase-dot-L3 { fill: var(--l3); }
+
+.tick { animation: tick .55s ease-out; }
+@keyframes tick {
+  from { opacity: .25; }
+  to   { opacity: 1; }
+}
+
+/* ---------------------------------------------------------------- instrument panels */
+
+.instruments { display: flex; flex-direction: column; gap: 1.5rem; }
+.panel { border: var(--hair); background: var(--panel); padding: .875rem 1rem 1rem; }
+.panel h2 {
+  font-size: .9375rem;
+  font-weight: 600;
+  margin: 0 0 .625rem;
+  color: var(--ink-2);
+}
+#trend { width: 100%; height: auto; display: block; }
+.caption { font-size: .8125rem; color: var(--ink-2); margin: .5rem 0 0; }
+
+.points { width: 100%; border-collapse: collapse; font-size: .875rem; }
+.points th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-2);
+  border-bottom: var(--hair);
+  padding: .25rem .5rem .25rem 0;
+}
+.points td {
+  padding: .2rem .5rem .2rem 0;
+  border-bottom: 1px solid var(--grid);
+  vertical-align: baseline;
+}
+.points td.num, .points td.age {
+  font-family: var(--num);
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.points td.unit { color: var(--ink-2); }
+.points td.q { white-space: nowrap; }
+.points .q-good       { color: var(--live); }
+.points .q-stale      { color: var(--stale); }
+.points .q-comms-lost { color: var(--bad); }
+.points .q-unknown    { color: var(--ink-2); }
+.points tr.is-absent td { color: var(--ink-3); }
+
+/* ---------------------------------------------------------------- trend drawing */
+
+.trend-frame { stroke: var(--rule); stroke-width: 1; fill: none; }
+.trend-grid  { stroke: var(--grid); stroke-width: .8; }
+.trend-line  { fill: none; stroke-width: 1.8; }
+.trend-gap   { fill: var(--paper); opacity: .65; }
+.trend-axis  { font-family: var(--num); font-size: 15px; fill: var(--ink-2); }
+.trend-band  { fill: var(--grid); opacity: .5; }
+
+.foot {
+  border-top: var(--hair);
+  margin-top: 2rem;
+  padding: 1rem 1.5rem 2rem;
+}
+.foot p { max-width: 78ch; font-size: .8125rem; color: var(--ink-2); margin: 0; }
+.foot code { font-family: var(--num); font-size: .9375rem; }
+
+/* ---------------------------------------------------------------- narrow */
+
+@media (max-width: 1000px) {
+  .map-wrap { grid-template-columns: minmax(0, 1fr); }
+  .map-legend { border-left: 0; border-top: var(--hair); padding: 1rem 0 0; }
+  .site-body { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (max-width: 640px) {
+  .rail { flex-wrap: wrap; gap: .5rem 1rem; padding: .5rem 1rem; }
+  .rail-views { order: 3; width: 100%; }
+  .view { padding: 1rem 1rem 0; }
+  .site-head { flex-wrap: wrap; }
+  .site-note { margin-left: 0; text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tick { animation: none; }
+}

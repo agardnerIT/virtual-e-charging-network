@@ -1,0 +1,20 @@
+[
+  {
+    "name": "rural-wan",
+    "listen": "0.0.0.0:14317",
+    "upstream": "hub:4317",
+    "enabled": true
+  },
+  {
+    "name": "solar-wan",
+    "listen": "0.0.0.0:14318",
+    "upstream": "hub:4317",
+    "enabled": true
+  },
+  {
+    "name": "wind-wan",
+    "listen": "0.0.0.0:14319",
+    "upstream": "hub:4317",
+    "enabled": true
+  }
+]

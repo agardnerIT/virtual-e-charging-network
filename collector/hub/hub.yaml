@@ -1,0 +1,131 @@
+# Hub collector — one, in the NOC/IT zone. See plan.md §5.3, D16.
+#
+# M0 keeps this deliberately thin: receive OTLP from every edge and show it. Ordering,
+# enrichment, tail sampling and fanout are added once there is real domain data to act on.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    send_batch_size: 4096
+    timeout: 2s
+
+  # ---------------------------------------------------------------------------------
+  # CARDINALITY SHED + SITE IDENTITY, BOTH ONLY ON THE VISUAL PATH.
+  #
+  # (a) SHED. Prometheus flattens every OTLP data point attribute into series identity, so
+  # an attribute whose value changes on every poll does not describe a series - it *mints a
+  # new series on every poll*. Measured on the M1a rural meter: 4 532 `energy_*` series in
+  # 15 minutes, growing ~1 series per second per point, because `energy.receive.timestamp`,
+  # `energy.device.timestamp` and `modbus.register.raw` were riding as datapoint attributes.
+  # At 1 Hz that is ~86 000 series per point per day, from one meter. A real backend would
+  # fall over - and plan.md §12 lists exactly this as the cardinality risk to demonstrate.
+  # These three are *payload*, not dimensions, so they are shed here and kept for the
+  # backend of record (the `metrics` pipeline below, which is untouched).
+  #
+  # (b) SITE IDENTITY. Prometheus' OTLP receiver is not symmetric about attributes: a
+  # *datapoint* attribute becomes a series label, but a *resource* attribute goes to the
+  # synthetic `target_info` series and does not appear on the data at all. Verified against
+  # the pinned version, not assumed: `count by (__name__) ({energy_site_id=~".+"})` returns
+  # target_info and nothing else. So NEXT.md 4.2's claim - "the edge collector already stamps
+  # energy.site.id ... the map needs nothing else" - held for OTLP but not for Prometheus,
+  # and any backend that flattens attributes into series identity needs the join.
+  # Rather than force every consumer into a `on(job) group_left` join, the five bounded,
+  # boundary-stable site attributes are copied onto the data points *here*, at the
+  # Prometheus boundary, and nowhere else - the OTLP-native path keeps the resource /
+  # datapoint split the way the spec intends. Five attributes, one value each: no cardinality
+  # cost, and the map gets what the plan promised it.
+  #
+  # Quality is untouched by either: `otel.data_point.quality` has four possible values, which
+  # is a perfectly good dimension. Staleness in the HMI comes from Prometheus' own sample
+  # timestamp, which is the hub's receive time - the same fact, without the fan-out.
+  # ---------------------------------------------------------------------------------
+  transform/visual:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - delete_key(attributes, "energy.receive.timestamp")
+          - delete_key(attributes, "energy.device.timestamp")
+          - delete_key(attributes, "modbus.register.raw")
+          - set(attributes["energy.site.id"],     resource.attributes["energy.site.id"])
+          - set(attributes["energy.site.name"],   resource.attributes["energy.site.name"])
+          - set(attributes["energy.site.kind"],   resource.attributes["energy.site.kind"])
+          - set(attributes["geo.latitude"],       resource.attributes["geo.latitude"])
+          - set(attributes["geo.longitude"],      resource.attributes["geo.longitude"])
+
+exporters:
+  debug:
+    verbosity: normal
+    sampling_initial: 5
+    sampling_thereafter: 200
+
+  # ---------------------------------------------------------------------------------
+  # The local visual stack (D3, D18). Fed from the hub, over OTLP, and nothing else:
+  # Prometheus 3 receives OTLP/HTTP natively and Jaeger v2 receives OTLP/gRPC natively.
+  # Neither scrapes a simulator and neither needs a vendor agent (D15).
+  #
+  # No sending queue here on purpose. The visual stack is a proof of life (D3), not the
+  # backend of record: if it is down, drop - do not let a dashboard outage grow a queue
+  # that the debug (or a real) exporter then has to wait behind. Store-and-forward belongs
+  # at the edge, where the link is the thing that fails.
+  # ---------------------------------------------------------------------------------
+  otlphttp/metrics:
+    endpoint: "${env:VISUAL_METRICS_ENDPOINT}"
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: false
+    sending_queue:
+      enabled: false
+
+  otlp/traces:
+    endpoint: "${env:VISUAL_TRACES_ENDPOINT}"
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: false
+    sending_queue:
+      enabled: false
+
+service:
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8889
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug, otlp/traces]
+    metrics:
+      # The backend of record. Everything the edge sent, untouched - including the two
+      # timestamps and the raw register read, because there is no dashboard here to kill.
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+    metrics/visual:
+      # The local proof of life (D3). Same receiver feeding a second pipeline is deliberate
+      # and supported: it is how one stream gets shed for one backend and not the other.
+      receivers: [otlp]
+      processors: [transform/visual, batch]
+      exporters: [otlphttp/metrics]
+    logs:
+      # No log store in the chosen visual stack yet - neither candidate ships one without
+      # adding Loki, which is not in the D10 budget by default. Flagged in docs/sizing.md.
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

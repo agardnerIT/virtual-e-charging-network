@@ -1,0 +1,11 @@
+# The datasource points at Prometheus' own HTTP API. Perses never receives OTLP itself:
+# the hub exports OTLP to Prometheus, and this is the query side of that store (D18).
+kind: GlobalDatasource
+metadata:
+  name: prometheus
+spec:
+  default: true
+  plugin:
+    kind: PrometheusDatasource
+    spec:
+      directUrl: http://prometheus:9090

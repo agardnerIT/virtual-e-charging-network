@@ -1,0 +1,12 @@
+pymodbus==3.16.1
+opentelemetry-sdk==1.45.1
+# OTLP/HTTP, not gRPC. Deliberate, and measured: grpcio is a ~21 MiB native library (bare
+# Python 10 MiB -> +grpc 31 MiB -> +OTel gRPC exporter 44 MiB resident), and this poller's
+# whole job is to POST ~200 metric points a minute to a container on the same bridge network.
+# gRPC's advantages - HTTP/2 multiplexing, streaming, binary framing, throughput on large
+# payloads - buy nothing at that rate, and the reliability story lives in the edge collector's
+# disk-backed queue, which is transport-independent. See plan.md D26.
+#
+# It also keeps the option open on the far side of the WAN: OTLP/HTTP traverses field-network
+# proxies and NAT more predictably than HTTP/2, should the edge->hub hop ever move.
+opentelemetry-exporter-otlp-proto-http==1.45.1

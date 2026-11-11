@@ -1,0 +1,355 @@
+# Edge collector - one per site, inside the OT zone. See plan.md §5.3, D16.
+#
+# One file and one image serve every site: sites differ by environment, not by code (D10).
+# This process is the only thing on a site that talks outward. It is the protocol adapter,
+# the trust boundary, the buffer and the sampling-policy engine in one.
+#
+# For the rural site this file also *is* the M1a normalisation chain. The poller deliberately
+# emits device-shaped data - `modbus.register.vpha`, unit `1`, the device's own A/B/C phase
+# letters, a device quality word, a device clock reading. Everything below turns that into
+# the semantic model. That is the whole argument for an edge collector existing.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Stamp site identity and geography at the edge, once, so that every backend and every
+  # map view can place the data without knowing anything about the site. The map (D18)
+  # depends on these four attributes existing by the time data leaves the OT zone.
+  resource/site:
+    attributes:
+      - { key: energy.site.id,            value: "${env:SITE_ID}",   action: upsert }
+      - { key: energy.site.name,          value: "${env:SITE_NAME}", action: upsert }
+      - { key: energy.site.kind,          value: "${env:SITE_KIND}", action: upsert }
+      - { key: geo.latitude,              value: "${env:SITE_LAT}",  action: upsert }
+      - { key: geo.longitude,             value: "${env:SITE_LON}",  action: upsert }
+      - { key: otel.collector.role,       value: "edge",             action: upsert }
+
+  # ------------------------------------------------------------------------------------
+  # THE NORMALISATION CHAIN (NEXT.md 4.3): names and units, then quality, then timestamps.
+  # Deadband is upstream, in the poller - see the note at the bottom of this file.
+  # ------------------------------------------------------------------------------------
+  transform/meter:
+    error_mode: ignore
+    metric_statements:
+
+      # 1a. TAG NAMES. The device's register names become semantic metric names. This table
+      #     is what every OT integrator writes by hand, per device, forever - which is why it
+      #     is here, in config, and not buried inside the driver. Regexes are doubled because
+      #     a backslash in YAML is a backslash.
+      - context: metric
+        statements:
+          - set(metric.name, "energy.meter.voltage")        where IsMatch(metric.name, "^modbus\\.register\\.(v|vpha|vphb|vphc)$")
+          - set(metric.name, "energy.meter.current")        where IsMatch(metric.name, "^modbus\\.register\\.(a|apha|aphb|aphc)$")
+          - set(metric.name, "energy.meter.frequency")      where metric.name == "modbus.register.hz"
+          - set(metric.name, "energy.meter.power.real")     where IsMatch(metric.name, "^modbus\\.register\\.(w|wpha|wphb|wphc)$")
+          - set(metric.name, "energy.meter.power.apparent") where IsMatch(metric.name, "^modbus\\.register\\.(va|vapha|vaphb|vaphc)$")
+          - set(metric.name, "energy.meter.power.reactive") where IsMatch(metric.name, "^modbus\\.register\\.(var|varpha|varphb|varphc)$")
+          - set(metric.name, "energy.meter.power_factor")   where IsMatch(metric.name, "^modbus\\.register\\.(pf|pfpha|pfphb|pfphc)$")
+          - set(metric.name, "energy.meter.energy")         where IsMatch(metric.name, "^modbus\\.register\\.totw(hexp|himp)$")
+          - set(metric.name, "energy.meter.temperature")    where metric.name == "modbus.register.tmpcab"
+
+          # 1b. UNITS. A device register has no unit. Units are UCUM.
+          - set(metric.unit, "V")    where metric.name == "energy.meter.voltage"
+          - set(metric.unit, "A")    where metric.name == "energy.meter.current"
+          - set(metric.unit, "Hz")   where metric.name == "energy.meter.frequency"
+          - set(metric.unit, "W")    where metric.name == "energy.meter.power.real"
+          - set(metric.unit, "VA")   where metric.name == "energy.meter.power.apparent"
+          - set(metric.unit, "var")  where metric.name == "energy.meter.power.reactive"
+          - set(metric.unit, "1")    where metric.name == "energy.meter.power_factor"
+          - set(metric.unit, "kW.h") where metric.name == "energy.meter.energy"
+          - set(metric.unit, "Cel")  where metric.name == "energy.meter.temperature"
+
+          # A metric without a description is a metric nobody trusts.
+          - set(metric.description, "Per-phase or average phase-to-neutral voltage.") where metric.name == "energy.meter.voltage"
+          - set(metric.description, "Per-phase or average line current.") where metric.name == "energy.meter.current"
+          - set(metric.description, "Supply frequency. 50 Hz nominal in Australia; NEM normal band ~49.85-50.15 Hz.") where metric.name == "energy.meter.frequency"
+          - set(metric.description, "Apparent power. Sizing quantity for cables and switchgear, which are thermally limited in VA.") where metric.name == "energy.meter.power.apparent"
+          - set(metric.description, "Real power. Positive means import (power flowing into the site).") where metric.name == "energy.meter.power.real"
+          - set(metric.description, "Reactive power. Positive means inductive / lagging.") where metric.name == "energy.meter.power.reactive"
+          - set(metric.description, "Power factor, unsigned; lead/lag is carried by the reactive power sign.") where metric.name == "energy.meter.power_factor"
+          - set(metric.description, "Cumulative energy register, monotonically increasing.") where metric.name == "energy.meter.energy"
+          - set(metric.description, "Meter enclosure temperature.") where metric.name == "energy.meter.temperature"
+
+      # 2-4. QUALITY, PHASE NAMES, SIGN AND THE RECEIVE TIMESTAMP.
+      #
+      # Quality: OTel has no native concept of a data point that is present but not
+      # trustworthy. This is the repo's strongest contribution candidate (plan.md 11.1) and it
+      # is a workaround, not a design we are happy with: validity rides on a data point
+      # attribute, `otel.data_point.quality`, which no OTel SDK produces and no backend models
+      # natively. Every OT protocol has this (DNP3 flags, IEC 104 quality bits, OPC UA
+      # StatusCode). OTel does not.
+      #
+      # Timestamps: "the device says it happened then, I observed it now". OTLP metrics have no
+      # per-data-point receive-time field. The plan's working default (NEXT.md 4.3.3) is that the
+      # metric's own timestamp *is* the collector's receive time - but 0.130's transform processor
+      # accepts `set(time_unix_nano, Now())` and silently ignores it (verified against the pinned
+      # image, not assumed). So the collector stamps its receive time as an attribute instead, and
+      # the metric's own timestamp stays whatever the edge observer (the poller) set. The two are
+      # allowed to diverge - remote sites in this network have no reliable NTP (plan.md 5.5).
+      # A known gap, documented rather than hidden.
+      - context: datapoint
+        statements:
+          - set(attributes["energy.receive.timestamp"], UnixNano(Now()) / 1000000000) where attributes["energy.quality"] != nil
+          - set(attributes["otel.data_point.quality"], attributes["energy.quality"]) where attributes["energy.quality"] != nil
+          - delete_key(attributes, "energy.quality")
+          - set(attributes["energy.voltage.reference"], "phase_neutral") where metric.name == "energy.meter.voltage"
+          # The device names phases A/B/C. IEC practice - and every protection setting, phasor
+          # diagram and AS/NZS drawing - says L1/L2/L3. Translate, do not pass through.
+          - set(attributes["energy.phase"], "L1") where attributes["modbus.register.phase"] == "A"
+          - set(attributes["energy.phase"], "L2") where attributes["modbus.register.phase"] == "B"
+          - set(attributes["energy.phase"], "L3") where attributes["modbus.register.phase"] == "C"
+          - delete_key(attributes, "modbus.register.phase")
+          - set(attributes["energy.direction"], attributes["modbus.register.energy_direction"]) where attributes["modbus.register.energy_direction"] != nil
+          - delete_key(attributes, "modbus.register.energy_direction")
+
+  # ------------------------------------------------------------------------------------
+  # THE INVERTER NORMALISATION CHAIN (M1b). Same shape as the meter chain above, and it
+  # lives in the same shared file because a site gets exactly one device: the statements
+  # that do not match simply do nothing, which is how this file stays site-agnostic (7.16).
+  #
+  # The one structural difference is the repeating MPPT model: `modbus.mppt.mppt_dcw` is ONE
+  # metric whose block number rides as `modbus.register.instance`, so the two trackers are
+  # two data points of one series, not two names (D20).
+  # ------------------------------------------------------------------------------------
+  transform/inverter:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          # 1a. TAG NAMES.
+          - set(metric.name, "energy.inverter.current")        where IsMatch(metric.name, "^modbus\\.inverter\\.(a|apha|aphb|aphc)$")
+          - set(metric.name, "energy.inverter.voltage")        where IsMatch(metric.name, "^modbus\\.inverter\\.(phvpha|phvphb|phvphc)$")
+          - set(metric.name, "energy.inverter.voltage.line")   where IsMatch(metric.name, "^modbus\\.inverter\\.(ppvphab|ppvphbc|ppvphca)$")
+          - set(metric.name, "energy.inverter.frequency")      where metric.name == "modbus.inverter.hz"
+          - set(metric.name, "energy.inverter.power.real")     where metric.name == "modbus.inverter.w"
+          - set(metric.name, "energy.inverter.power.apparent") where metric.name == "modbus.inverter.va"
+          - set(metric.name, "energy.inverter.power.reactive") where metric.name == "modbus.inverter.var"
+          - set(metric.name, "energy.inverter.power_factor")   where metric.name == "modbus.inverter.pf"
+          - set(metric.name, "energy.inverter.energy")         where metric.name == "modbus.inverter.wh"
+          - set(metric.name, "energy.inverter.dc.current")     where metric.name == "modbus.inverter.dca"
+          - set(metric.name, "energy.inverter.dc.voltage")     where metric.name == "modbus.inverter.dcv"
+          - set(metric.name, "energy.inverter.dc.power")       where metric.name == "modbus.inverter.dcw"
+          - set(metric.name, "energy.inverter.dc.energy")      where metric.name == "modbus.inverter.dcwh"
+          - set(metric.name, "energy.inverter.temperature.cabinet")  where metric.name == "modbus.inverter.tmpcab"
+          - set(metric.name, "energy.inverter.temperature.heatsink") where metric.name == "modbus.inverter.tmpsnk"
+          - set(metric.name, "energy.inverter.status")         where metric.name == "modbus.inverter.st"
+          - set(metric.name, "energy.inverter.status.vendor")  where metric.name == "modbus.inverter.stvnd"
+          - set(metric.name, "energy.inverter.event")          where metric.name == "modbus.inverter.evt1"
+          - set(metric.name, "energy.inverter.mppt.current")   where metric.name == "modbus.mppt.mppt_dca"
+          - set(metric.name, "energy.inverter.mppt.voltage")   where metric.name == "modbus.mppt.mppt_dcv"
+          - set(metric.name, "energy.inverter.mppt.power")     where metric.name == "modbus.mppt.mppt_dcw"
+          - set(metric.name, "energy.inverter.mppt.temperature") where metric.name == "modbus.mppt.mppt_tmp"
+          - set(metric.name, "energy.pv.irradiance")           where IsMatch(metric.name, "^modbus\\.irradiance\\.(gh|poa)$")
+          - set(metric.name, "energy.pv.module_temperature")   where metric.name == "modbus.temperature.tmpbom"
+          - set(metric.name, "energy.pv.ambient_temperature")  where metric.name == "modbus.temperature.tmpamb"
+          - set(metric.name, "energy.inverter.export_limit")   where metric.name == "modbus.controls.wmaxlimpct" and resource.attributes["energy.device.kind"] == "inverter"
+          - set(metric.name, "energy.inverter.fault_code")     where metric.name == "modbus.vendor.faultcode" and resource.attributes["energy.device.kind"] == "inverter"
+          - set(metric.name, "energy.inverter.curtailment")    where metric.name == "modbus.vendor.curtailstate" and resource.attributes["energy.device.kind"] == "inverter"
+
+          # 1b. UNITS.
+          - set(metric.unit, "A")    where IsMatch(metric.name, "^energy\\.inverter\\.(current|dc\\.current|mppt\\.current)$")
+          - set(metric.unit, "V")    where IsMatch(metric.name, "^energy\\.inverter\\.(voltage|voltage\\.line|dc\\.voltage|mppt\\.voltage)$")
+          - set(metric.unit, "Hz")   where metric.name == "energy.inverter.frequency"
+          - set(metric.unit, "W")    where IsMatch(metric.name, "^energy\\.inverter\\.(power\\.real|dc\\.power|mppt\\.power)$")
+          - set(metric.unit, "VA")   where metric.name == "energy.inverter.power.apparent"
+          - set(metric.unit, "var")  where metric.name == "energy.inverter.power.reactive"
+          - set(metric.unit, "1")    where IsMatch(metric.name, "^energy\\.inverter\\.(power_factor|status|status\\.vendor|event|fault_code|curtailment)$")
+          - set(metric.unit, "kW.h") where IsMatch(metric.name, "^energy\\.inverter\\.(energy|dc\\.energy)$")
+          - set(metric.unit, "Cel")  where IsMatch(metric.name, "^energy\\.(inverter\\.temperature|inverter\\.mppt\\.temperature|pv\\.(module_temperature|ambient_temperature))")
+          - set(metric.unit, "W/m2") where metric.name == "energy.pv.irradiance"
+          - set(metric.unit, "%")    where metric.name == "energy.inverter.export_limit"
+
+          # 1c. DESCRIPTIONS. A metric without one is a metric nobody trusts.
+          - set(metric.description, "AC current per phase (average when no phase attribute is present).") where metric.name == "energy.inverter.current"
+          - set(metric.description, "AC phase-to-neutral voltage at the inverter terminals (690 V L-L system).") where metric.name == "energy.inverter.voltage"
+          - set(metric.description, "AC phase-to-phase voltage at the inverter terminals.") where metric.name == "energy.inverter.voltage.line"
+          - set(metric.description, "Real AC power. A PV inverter exports, so this is always production, never import.") where metric.name == "energy.inverter.power.real"
+          - set(metric.description, "DC power aggregated across all MPPT trackers. The AC/DC ratio is the conversion efficiency.") where metric.name == "energy.inverter.dc.power"
+          - set(metric.description, "DC power for one MPPT tracker block. Trackers disagree when a cloud edge crosses them.") where metric.name == "energy.inverter.mppt.power"
+          - set(metric.description, "Cumulative AC energy exported, read from the inverter's lifetime register.") where metric.name == "energy.inverter.energy"
+          - set(metric.description, "Plane-of-array or global-horizontal irradiance; which plane is in energy.irradiance.plane.") where metric.name == "energy.pv.irradiance"
+          - set(metric.description, "Back-of-module cell temperature. Derates DC power; the reason a hot clear day produces less.") where metric.name == "energy.pv.module_temperature"
+          - set(metric.description, "Network export limit as a percentage of nameplate AC. 100 means uncurtailed.") where metric.name == "energy.inverter.export_limit"
+          - set(metric.description, "0 not limited, 1 export-limited by the network, 2 clipped by the inverter's own AC rating.") where metric.name == "energy.inverter.curtailment"
+          - set(metric.description, "SunSpec model 103 operating state (3 sleeping, 4 MPPT, 7 fault).") where metric.name == "energy.inverter.status"
+
+      # 2. THE INVERTER-ONLY DIMENSIONS. Quality, the receive timestamp and the A/B/C ->
+      # L1/L2/L3 mapping are already attached by `transform/meter`'s datapoint block: those
+      # statements are not name-gated, so they run for every signal that reaches this
+      # pipeline, meter or inverter. What is left here is what only an inverter has.
+      - context: datapoint
+        statements:
+          # The repeating-model block index becomes the MPPT number - but only on metrics that
+          # ARE the repeating model. Without the name gate, this would also tag the wind farm's
+          # turbine datapoints (which carry the same `modbus.register.instance`) as MPPTs, and
+          # transform/wind runs later so it could not undo it.
+          - set(attributes["energy.mppt"], attributes["modbus.register.instance"]) where IsMatch(metric.name, "^energy\\.inverter\\.mppt\\.")
+          - delete_key(attributes, "modbus.register.instance") where IsMatch(metric.name, "^energy\\.inverter\\.mppt\\.")
+          # Which plane a single irradiance metric is measuring - the GH/POA distinction is
+          # real physics, so it must survive as a dimension, not be averaged away.
+          - set(attributes["energy.irradiance.plane"], "horizontal")     where metric.name == "energy.pv.irradiance" and attributes["energy.point"] == "GH"
+          - set(attributes["energy.irradiance.plane"], "plane_of_array") where metric.name == "energy.pv.irradiance" and attributes["energy.point"] == "POA"
+          - set(attributes["energy.inverter.status.text"], "off")      where metric.name == "energy.inverter.status" and value_double == 0
+          - set(attributes["energy.inverter.status.text"], "sleeping") where metric.name == "energy.inverter.status" and value_double == 3
+          - set(attributes["energy.inverter.status.text"], "mppt")     where metric.name == "energy.inverter.status" and value_double == 4
+          - set(attributes["energy.inverter.status.text"], "fault")    where metric.name == "energy.inverter.status" and value_double == 7
+          - set(attributes["energy.inverter.curtailment.text"], "none")             where metric.name == "energy.inverter.curtailment" and value_double == 0
+          - set(attributes["energy.inverter.curtailment.text"], "export_limited")   where metric.name == "energy.inverter.curtailment" and value_double == 1
+          - set(attributes["energy.inverter.curtailment.text"], "inverter_clipped") where metric.name == "energy.inverter.curtailment" and value_double == 2
+          - set(attributes["energy.inverter.fault_code.text"], "none") where metric.name == "energy.inverter.fault_code" and value_double == 0
+
+  # ------------------------------------------------------------------------------------
+  # THE WIND NORMALISATION CHAIN (M1b, third site). The farm is six turbines sharing one
+  # Modbus device, so the turbine model repeats and `modbus.register.instance` becomes the
+  # turbine number - one metric, six data points, exactly like the MPPT blocks above. The
+  # farm aggregate is a separate model because a real connection point is metered separately
+  # from the machines, and the two differ by collector and transformer losses.
+  # ------------------------------------------------------------------------------------
+  transform/wind:
+    error_mode: ignore
+    metric_statements:
+      - context: metric
+        statements:
+          # 1a. TAG NAMES - per turbine.
+          - set(metric.name, "energy.turbine.power.real")       where metric.name == "modbus.turbine.w"
+          - set(metric.name, "energy.turbine.power.reactive")   where metric.name == "modbus.turbine.var"
+          - set(metric.name, "energy.turbine.energy")           where metric.name == "modbus.turbine.wh"
+          - set(metric.name, "energy.turbine.current")          where metric.name == "modbus.turbine.a"
+          - set(metric.name, "energy.turbine.voltage")          where metric.name == "modbus.turbine.v"
+          - set(metric.name, "energy.turbine.wind_speed")       where metric.name == "modbus.turbine.windspeed"
+          - set(metric.name, "energy.turbine.wind_direction")   where metric.name == "modbus.turbine.winddir"
+          - set(metric.name, "energy.turbine.rotor_speed")      where metric.name == "modbus.turbine.rotorrpm"
+          - set(metric.name, "energy.turbine.pitch_angle")      where metric.name == "modbus.turbine.pitchangle"
+          - set(metric.name, "energy.turbine.temperature.nacelle")  where metric.name == "modbus.turbine.tmpnac"
+          - set(metric.name, "energy.turbine.temperature.gearbox")  where metric.name == "modbus.turbine.tmpgear"
+          - set(metric.name, "energy.turbine.status")           where metric.name == "modbus.turbine.st"
+          - set(metric.name, "energy.turbine.availability")     where metric.name == "modbus.turbine.avail"
+          # 1a. TAG NAMES - farm connection point.
+          - set(metric.name, "energy.windfarm.power.real")      where metric.name == "modbus.farm.farmw"
+          - set(metric.name, "energy.windfarm.power.reactive")  where metric.name == "modbus.farm.farmvar"
+          - set(metric.name, "energy.windfarm.energy")          where metric.name == "modbus.farm.farmwh"
+          - set(metric.name, "energy.windfarm.frequency")       where metric.name == "modbus.farm.hz"
+          - set(metric.name, "energy.windfarm.ambient_temperature") where metric.name == "modbus.farm.tmpamb"
+          - set(metric.name, "energy.windfarm.wind_speed")      where metric.name == "modbus.farm.windspeedavg"
+          - set(metric.name, "energy.windfarm.wind_direction")  where metric.name == "modbus.farm.winddiravg"
+          - set(metric.name, "energy.windfarm.status")          where metric.name == "modbus.farm.farmst"
+          - set(metric.name, "energy.windfarm.availability")    where metric.name == "modbus.farm.farmavail"
+          - set(metric.name, "energy.windfarm.export_limit")    where metric.name == "modbus.controls.wmaxlimpct" and resource.attributes["energy.device.kind"] == "windfarm"
+          - set(metric.name, "energy.windfarm.fault_code")      where metric.name == "modbus.vendor.faultcode" and resource.attributes["energy.device.kind"] == "windfarm"
+          - set(metric.name, "energy.windfarm.curtailment")     where metric.name == "modbus.vendor.curtailstate" and resource.attributes["energy.device.kind"] == "windfarm"
+
+          # 1b. UNITS.
+          - set(metric.unit, "A")     where IsMatch(metric.name, "^energy\\.turbine\\.current$")
+          - set(metric.unit, "V")     where IsMatch(metric.name, "^energy\\.turbine\\.voltage$")
+          - set(metric.unit, "W")     where IsMatch(metric.name, "^(energy\\.turbine|energy\\.windfarm)\\.power\\.real$")
+          - set(metric.unit, "var")   where IsMatch(metric.name, "^(energy\\.turbine|energy\\.windfarm)\\.power\\.reactive$")
+          - set(metric.unit, "kW.h")  where IsMatch(metric.name, "^(energy\\.turbine|energy\\.windfarm)\\.energy$")
+          - set(metric.unit, "m/s")   where IsMatch(metric.name, "^(energy\\.turbine|energy\\.windfarm)\\.wind_speed$")
+          - set(metric.unit, "deg")   where IsMatch(metric.name, "^energy\\.turbine\\.(wind_direction|pitch_angle)$")
+          - set(metric.unit, "deg")   where metric.name == "energy.windfarm.wind_direction"
+          - set(metric.unit, "/min")  where metric.name == "energy.turbine.rotor_speed"
+          - set(metric.unit, "Cel")   where IsMatch(metric.name, "^(energy\\.turbine\\.temperature\\.(nacelle|gearbox)|energy\\.windfarm\\.ambient_temperature)$")
+          - set(metric.unit, "Hz")    where metric.name == "energy.windfarm.frequency"
+          - set(metric.unit, "%")     where metric.name == "energy.windfarm.export_limit"
+          - set(metric.unit, "1")     where IsMatch(metric.name, "^(energy\\.turbine\\.(status|availability)|energy\\.windfarm\\.(status|availability|fault_code|curtailment))$")
+
+          # 1c. DESCRIPTIONS.
+          - set(metric.description, "One turbine's real AC power. Goes as the cube of wind speed, so it swings hard.") where metric.name == "energy.turbine.power.real"
+          - set(metric.description, "One turbine's wind speed. Machines in the same row see different wind.") where metric.name == "energy.turbine.wind_speed"
+          - set(metric.description, "One turbine's rotor speed. Zero below cut-in, capped at rated.") where metric.name == "energy.turbine.rotor_speed"
+          - set(metric.description, "Blade pitch. 0 degrees below rated wind, feathering above it to shed power.") where metric.name == "energy.turbine.pitch_angle"
+          - set(metric.description, "Real AC power at the point of connection. Smoother than any single turbine.") where metric.name == "energy.windfarm.power.real"
+          - set(metric.description, "Mean wind speed across the farm's turbines.") where metric.name == "energy.windfarm.wind_speed"
+          - set(metric.description, "0 idle, 1 starting, 2 producing, 3 curtailed, 7 fault (vendor enum; see docs/standards.md).") where metric.name == "energy.windfarm.status"
+          - set(metric.description, "Turbines available / total, since the farm controller reports a count.") where metric.name == "energy.windfarm.availability"
+          - set(metric.description, "Network export limit as a percentage of farm rating. 100 means uncurtailed.") where metric.name == "energy.windfarm.export_limit"
+
+      # 2. THE WIND TURBINE NUMBER.
+      - context: datapoint
+        statements:
+          - set(attributes["energy.turbine"], attributes["modbus.register.instance"]) where IsMatch(metric.name, "^energy\\.turbine\\.")
+          - delete_key(attributes, "modbus.register.instance") where IsMatch(metric.name, "^energy\\.turbine\\.")
+          - set(attributes["energy.turbine.status.text"], "idle")      where metric.name == "energy.turbine.status" and value_double == 0
+          - set(attributes["energy.turbine.status.text"], "starting")  where metric.name == "energy.turbine.status" and value_double == 1
+          - set(attributes["energy.turbine.status.text"], "producing") where metric.name == "energy.turbine.status" and value_double == 2
+          - set(attributes["energy.turbine.status.text"], "curtailed") where metric.name == "energy.turbine.status" and value_double == 3
+          - set(attributes["energy.turbine.status.text"], "fault")     where metric.name == "energy.turbine.status" and value_double == 7
+          - set(attributes["energy.windfarm.status.text"], "idle")      where metric.name == "energy.windfarm.status" and value_double == 0
+          - set(attributes["energy.windfarm.status.text"], "producing") where metric.name == "energy.windfarm.status" and value_double == 2
+          - set(attributes["energy.windfarm.curtailment.text"], "none")            where metric.name == "energy.windfarm.curtailment" and value_double == 0
+          - set(attributes["energy.windfarm.curtailment.text"], "export_limited")  where metric.name == "energy.windfarm.curtailment" and value_double == 1
+          - set(attributes["energy.windfarm.curtailment.text"], "connection_cap")  where metric.name == "energy.windfarm.curtailment" and value_double == 2
+
+  # Renaming four per-phase points onto one semantic metric leaves four metrics that share a
+  # name; groupbyattrs merges them into one metric with one data point per phase. Without this
+  # the hub shows energy.meter.voltage three times, which is the same data modelled three times.
+  groupbyattrs/meter:
+    keys: [energy.site.id]
+
+  batch:
+    send_batch_size: 2048
+    timeout: 2s
+
+exporters:
+  otlp/hub:
+    endpoint: "${env:HUB_ENDPOINT}"
+    tls:
+      insecure: true
+    # Retry forever: a multi-hour satellite outage is a design condition here, not an error.
+    # This plus the disk-backed queue below is the store-and-forward story (plan.md §5.3).
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
+      max_elapsed_time: 0s
+    sending_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 5000
+      storage: file_storage
+
+extensions:
+  file_storage:
+    directory: /var/lib/otelcol/queue
+    create_directory: true
+    timeout: 5s
+
+service:
+  extensions: [file_storage]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [resource/site, batch]
+      exporters: [otlp/hub]
+    metrics:
+      receivers: [otlp]
+      processors: [resource/site, transform/meter, transform/inverter, transform/wind, groupbyattrs/meter, batch]
+      exporters: [otlp/hub]
+    logs:
+      receivers: [otlp]
+      processors: [resource/site, batch]
+      exporters: [otlp/hub]
+
+# Deadband is not here. The plan lists it in the edge chain (4.3.4), and it belongs at the
+# edge - but the collector has no stateful deadband processor: filter/metricstransform can
+# drop a metric by name or attribute, not "drop it only if it moved less than X since the
+# last one". Doing it honestly means doing it where the previous value is known, so the
+# poller does it (sim/poller/poller.py, DEADBAND). An OT-shaped `deadband` processor is a
+# real gap in contrib and a contribution candidate alongside the quality attribute.

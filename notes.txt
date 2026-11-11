@@ -1,0 +1,7 @@
+# Fully monitored
+
+This folder contains a full end-to-end e-charging network. From the electrical network and componentry to the EV charging stations to the home solar + charging wallboxes.
+
+The goal is to show how to monitor the entire thing using the OpenTelemetry collector and is a reference implementation for "OpenTelemetry beyond applications" where we show OTel is useful for OT (operational technology) as well as the more "traditional" IT environments that OpenTelemetry usually finds itself in.
+
+It runs in docker / docker compose and leverages existing open source stacks wherever possible.

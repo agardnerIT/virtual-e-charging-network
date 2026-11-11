@@ -1,0 +1,440 @@
+# Virtual E-Charging Network — Plan
+
+> **Last updated:** 2026-10-15
+> **Status:** **M1b complete** — the rural site runs a real SunSpec/Modbus meter, the solar site a
+> real SunSpec inverter (models 103/160/302/303/123), and the wind farm a SunSpec-shaped 6-turbine
+> device; all three are the same image and the same poller, differing by configuration (D10). The
+> map of Australia and the per-site one-line mimic are fed only from the pipeline (D18).
+> **Next work item:** M2 — sessions as traces (OCPP CP sim + CSMS-lite, a metric exemplar linking
+> a sag to a failed session). See [`NEXT.md`](NEXT.md).
+> **Living document rule:** this file is the source of truth for decisions. `notes.txt` is the original
+> brief and is left alone. Superseded decisions are struck through with the replacement noted, never deleted.
+
+---
+
+## 1. What this is
+
+A full end-to-end, **fully virtual** electric vehicle charging network — from the electrical network
+(generation, distribution, behind-the-meter) through to charge points and home solar + wallboxes —
+with **every layer instrumented via OpenTelemetry**, and the OpenTelemetry Collector used as the
+integration point between operational technology (OT) and IT.
+
+The reference implementation to prove out the claim: *OpenTelemetry is useful beyond applications.*
+
+**Success criterion** (the sentence every scope decision is tested against): within ten minutes of
+`make up`, a reader with no electrical background opens a map of Australia, watches a voltage sag
+propagate into a failed charging session, and understands that OT data carries quality, time, units and
+intermittency — and that a stock OpenTelemetry Collector carried all of it end to end.
+
+**Hard constraint: OTel-native.** No ActiveGate, no OneAgent, no vendor agent of any kind, ever. The
+collectors *are* the agents; every backend is an OTLP exporter and nothing more (D15).
+
+**Generation is clean energy only:** one utility-scale solar farm and one wind farm (D17).
+
+Three audiences, in priority order:
+
+1. **Someone with an IT/observability background** — can clone it, run it, and learn how OT telemetry
+   differs from app telemetry (this repo's owner is audience #1).
+2. **Someone with an electrical/OT background** — recognises the values, units, alarms, event lists and
+   failure modes as realistic, not "a JSON file pretending to be a charger".
+3. **Someone with an OTel/observability platform background** — can point their own backend at it, because
+   the output is plain OTLP and nothing else.
+
+## 2. Scope
+
+**In scope**
+
+- Four simulated sites spanning realistic Australian grid conditions (see §5.2).
+- Electrical: MV/LV transformer, feeder, protection, power quality, three-phase metering.
+- Generation: one utility-scale **solar farm** and one **wind farm**, each a first-class, independently
+  instrumented site (clean energy only — no thermal, diesel or nuclear generation anywhere in the
+  network). Site-level solar PV and battery/BESS remain.
+- Charging: AC posts, DC fast chargers, load management, OCPP charge point ↔ CSMS.
+- Behind the meter: home solar, battery, wallbox, EV, tariffs, negative midday prices.
+- IT: the CSMS itself instrumented with normal app telemetry (traces/logs/metrics).
+- The observability pipeline itself: collector self-telemetry, backpressure, OpAMP remote management.
+- Network reality: latency, packet loss, link outages, store-and-forward, clock skew, stale data.
+
+**Out of scope (at least initially)**
+
+- Real hardware of any kind. No physical chargers, inverters, meters or PLCs.
+- Full IEC 61850 (MMS/GOOSE/Sampled Values) stack. Substation automation is represented by a
+  gateway that emits OTLP with realistic IEC 61850-style measurements and quality.
+- Real market settlement, real payment processing, real vehicle CAN/ISO 15118 protocol work.
+  ISO 15118 Plug & Charge appears as an identity/certificate *metadata* story, not a protocol implementation.
+- Kubernetes. Docker Compose only (see D13).
+- Industrial protocol breadth on the critical path. **One** southbound device protocol (Modbus/SunSpec)
+  plus OCPP teaches every OT telemetry lesson: units, scaling, sign, names, absent timestamps, absent
+  quality, polling load, deadbands, session-as-trace. DNP3, IEC 60870-5-104, IEC 61850, DLMS/COSEM and
+  OPC UA are documented as *mappings* (and may return later as opt-in profiles), not built by default.
+  See D4.
+
+---
+
+## 3. Decisions log
+
+| # | Decision | Rationale |
+|---|---|---|
+| **D1** | Primary deliverable is a **repo others can run**, optimised for learning, not a talk script. | Owner's answer to Q1. Talks can be derived from it later; a script cannot be derived from a script. |
+| **D2** | **Vendor neutral by construction.** The collector's exporter set is configuration, not architecture. Default profile ships with the `debug` exporter only. | Owner uses Dynatrace; others will use Grafana, Honeycomb, Elastic, SigNoz. Backend choice must never be a prerequisite to running the repo. |
+| **D3** | A **local lightweight visualisation** is built, but it is not the observability backend. It is a *proof of life*. | Two distinct needs: (a) "did my telemetry arrive" and (b) "show me my data". Mixing them couples the repo to one vendor. |
+| **D4** | ~~Electrical realism is **not** cut down.~~ **Realism means "recognisable to an engineer", not exhaustive.** Values, units, curves and failure modes must survive a domain reader's scrutiny; the long tail of industrial protocols does not have to be implemented to earn that. Domain gaps are filled by `docs/ot-primer.md` and checked against public standards. | Amended (was: "don't cut corners"). The original wording implied a multi-month simulator project and pushed the OTel story to the end. Depth buys credibility; breadth is opt-in (§2, D16). |
+| **D5** | Prefer **existing OSS simulators and components**; write custom code only where the domain is thin (energy semantic conventions, OT quality/validity handling, network impairment). | Owner's answer to Q4. |
+| **D6** | Anything we build that fills an OTel gap is written **upstream-shaped**: Weaver registry, collector component, semconv proposal — not a private fork. | Owner's answer to Q4: "we can build it and contribute back". |
+| **D7** | **Multi-site across Australia, heterogeneous by design** — four site archetypes, not four copies of one site. | Owner's answer to Q5. Patchy connectivity is a *feature* of the model, not a nuisance to work around. |
+| **D8** | ~~**OpAMP is in scope**, but it arrives with multi-site (M3+), and M0–M2 must not depend on it.~~ **OpAMP is deferred off the critical path** (post-1.0 stretch). Nothing in the default path may depend on it. | Amended: remote config is genuinely how you would manage N edge collectors, but it is a management-plane story, invisible to the "OTel carries OT telemetry" narrative. Revisit once D16 and the map are real. |
+| **D15** | **OTel-native only. No ActiveGate, no OneAgent, no vendor agent of any kind.** The OpenTelemetry Collectors *are* the agents. Every backend is reached through an OTLP exporter (gRPC or HTTP) and nothing else. | Owner's constraint. D2 is the architectural expression of this; D15 makes it non-negotiable. It also improves the story: "the collector is the agent in OT" becomes something the repo demonstrates rather than asserts. |
+| **D16** | **Two collector layers, and only two: an edge collector per site, and one hub collector.** Edge = protocol adapter, unit/scale/sign/tag normalisation, quality + dual timestamps, deadband, disk-buffered store-and-forward, single egress. Hub = ordering, enrichment, tail sampling, fanout to N backends, self-telemetry. | Standard OTel agent→gateway fan-in. One layer leaks every site's protocol quirks into a single config and destroys store-and-forward; three layers is regional aggregation that four-to-seven sites do not need. Add a third only when site count makes the hub the bottleneck. |
+| **D17** | **Generation is clean energy: one solar farm and one wind farm**, each a first-class site with its own edge collector. No thermal, diesel or nuclear generation. The isolated site becomes a solar + wind + BESS microgrid. | Owner's answer. Two generation assets give the map its "power station" anchors and give the pipeline two contrasting generation regimes: solar's clipping midday curve and wind's high per-turbine variance with farm-level smoothing. |
+| **D18** | **Visuals (map, mimic, trends, alarms) are a required deliverable, but they come after the collector layer.** Telemetry first, pictures second. Every view is fed from the pipeline — OTLP/collector output — never from a vendor agent and never by reading the simulators directly. | Owner's sequencing. Keeps the collector topology as the first thing validated, and keeps every visual a genuine end-to-end proof rather than a direct read of the simulator's internal state. |
+| **D19** | **The Modbus poller is written in Python (`pymodbus`), not Go.** It is a device-facing adapter that emits OTLP; the collector remains the gateway for everything northbound. Extracting it into a real Go `modbus` receiver is explicitly deferred to the rule of two (D6). | Owner's answer. OTel has no Modbus receiver in core or contrib, so something must speak the protocol — but the reusable, upstream-shaped artefact should be extracted *after* M1–M2 show which transformations every integrator actually writes by hand, not guessed at up front. Python keeps the first slice cheap. |
+| **D9** | **Docker Compose is the only runtime.** Devcontainer support is a goal, targeting the same compose file. | Owner's answer to Q7. |
+| **D10** | Hard budget: **runs in ≤3 GB of RAM on an Apple M2 / 8 GB machine**, arm64 images only. Aggregate profiles are opt-in with a warning. | Owner's answer to Q7. Rules out Grafana+Loki+Tempo+Mimir as a default, and rules out Java/MySQL CSMS as a default. |
+| **D11** | Sites are simulated as separate containers with **network impairment applied between site and hub** (latency/loss/bandwidth/outage), not as one LAN. | D7. Without impairment the "OT is not a datacentre" story is a claim, not a demo. |
+| **D12** | **Quality and provenance are first-class**, not metadata afterthoughts: every OT data point carries validity (good/stale/bad/comms-lost) and both source and receive timestamps. | This is the single biggest semantic difference between OT and app telemetry, and the biggest gap we can contribute back (see §11). |
+| **D13** | No Kubernetes. | Consistent with `autonomous-observability`; compose is the lowest-friction clone-and-run. |
+| **D14** | Metrics are the default transport for continuously-varying electrical values; **traces are reserved for sessions and sequences of events**; logs for alarms and protocol frames. | OT has three distinct shapes (point values, sequences, events) that map almost 1:1 onto OTel's three signals. See `docs/ot-primer.md` §6. |
+| **D20** | **M1a split of responsibility: the poller reads and scales, the edge collector gives meaning.** The poller is a generic, map-driven Modbus adapter — it applies the device's own scale factors and word order (only device-facing code knows them, NEXT.md 4.2) and emits *device-shaped* metrics (`modbus.register.vpha`, unit `1`, raw integer and scale factor as attributes). The edge collector owns names, units, sign, the A/B/C → L1/L2/L3 mapping, quality and dual timestamps (NEXT.md 4.3). | NEXT.md 4.2 and 4.3 overlap; resolved so the semantic work lands where the plan says the teaching is (the edge collector, D16), while device-specific scaling stays with the device-facing code. |
+| **D21** | **OT quality is a datapoint attribute, `otel.data_point.quality` (good / stale / bad / comms-lost), attached by the edge collector's `transform` processor.** | OTel has no native notion of a value that is present but not trustworthy. Working default for M1a; strongest contribution candidate, §11.1. |
+| **D22** | **Deadband is implemented in the poller, not the collector.** | contrib has no stateful deadband processor — `filter`/`metricstransform` cannot compare a value with its predecessor. Source-side change-of-state reporting is also the OT-correct place. Contribution candidate, §11.6. |
+| **D23** | **The collector's receive time rides as a datapoint attribute (`energy.receive.timestamp`), not as the metric timestamp.** | OTLP metrics have no per-datapoint receive time, and 0.130's `transform` silently ignores `set(time_unix_nano, …)` — verified against the pinned image, not assumed. The metric's own timestamp stays the edge observer's; the device's claim is `energy.device.timestamp`. A recorded deviation from the §4.3.3 working default. |
+| **D24** | **The local visual stack is Prometheus (OTLP/HTTP receiver) + Jaeger v2 (OTLP/gRPC) + our own `hmi/`. Perses is optional; Grafana is not shipped.** All three were run and measured against real hub-fed data: 80 MiB for this stack, 162 MiB with Perses, 276 MiB with Grafana OSS. | RAM did **not** decide it — every candidate fits D10 easily, which was itself the useful result. The deliverable is a map and a one-line mimic with values *in place* (§7, D18), and neither Perses nor Grafana draws that; Grafana would have cost 86 MiB more for a panel that still needed custom code. Perses stays available as `make up STACK=perses` because YAML dashboards are the better as-code story for a trends view, and nothing depends on it. Consequence: the whole 3 GB budget remains available for the real backend recipes. |
+| **D25** | **OTLP attributes are adapted to Prometheus' data model at the Prometheus boundary only (`transform/visual` in the hub), never in the OTLP-native path.** Per-sample payload is shed on that path; five bounded site attributes are copied resource → data point on that path. | Two measured facts force it. (1) Prometheus flattens *datapoint* attributes into series identity, so a value that changes every poll mints a new series every poll: 4 532 `energy_*` series in 15 minutes from one meter, ~86 000 per point per day, and 80 MiB of Prometheus. (2) The receiver puts *resource* attributes on a synthetic `target_info` series and not on the data — so `energy.site.id` was never on a metric, and §4.2's “the map needs nothing else” was false for Prometheus. Shedding and re-stamping only at that boundary keeps the resource/datapoint split the spec intends while making the map work without an `on(job) group_left` join. |
+| **D26** | **The poller scans at 1 Hz and reports every 5 s, and the site-local hop to the edge collector is OTLP/HTTP, not gRPC.** The edge → hub hop stays gRPC. | The report rate used to be the scan rate, which made the poller open a gRPC export once per second: 1 106 metric points a minute across a link whose story is that it is a 4G backhaul, and the exact opposite of what the deadband is for. Fixed → ~195 points/min, CPU 6.09% → 0.17%, and RSS stopped climbing (33 → 232 MiB had become the steady state; see docs/sizing.md). On a hop that never leaves the site network, gRPC's multiplexing and framing buy nothing for 200 points a minute and cost a native `grpcio` (~21 MiB, measured); removing it also removes the transport from the site image. The WAN hop keeps gRPC: reliability there comes from `retry_on_failure` + the disk-backed queue, which is transport-independent, and the impairment profiles and queue accounting are already validated against it. HTTP is arguably the more robust choice for a hostile link (middlebox traversal, no idle connection to reap) and is recorded here as an open choice rather than churned. |
+
+| **D27** | **The wind farm uses SunSpec-shaped VENDOR models (64010 turbine ×6, 64011 farm connection point), not a SunSpec model number.** The turbine model repeats, one block per machine, and the block index rides as `modbus.register.instance` — the same mechanism model 160 (MPPT) uses. | SunSpec has no turbine model in the 100-series that anyone shipped, so assigning one would imply conformance that does not exist. The vendor models still follow every SunSpec register convention (integer + scale factor, acc32, sentinel, model chain), which is what `docs/standards.md` is for. Reusing the repeating-block mechanism costs nothing new and keeps six turbines as one metric with six data points. |
+| **D28** | **Shared models (123 controls, vendor 64001) are disambiguated at the edge by `energy.device.kind`, not by separate names per device.** | The solar inverter and the wind farm both implement model 123 and the vendor model, and the first build had `transform/inverter` rename the wind farm's export limit to `energy.inverter.export_limit` — a wrong name, not a missing one. The model number belongs to the device, so the device kind is the right discriminator, and it keeps one meaning per metric name across the shared edge config (D16). |
+| **D29** | **Generation can be forced to a daytime hour and curtailed on demand: `make up SOLAR_CLOCK_HOUR=12`, `make curtail SITE=solar PCT=60`.** | The success criterion is a ten-minute demo (plan.md §1), which must not depend on the wall clock or on the wind happening to blow. A solar farm at 2am is correctly asleep, which is honest but not a demo; pinning the sim hour is the smallest possible lever. Operator curtailment is a different fact from inverter clipping, so it has its own control rather than being inferred. |
+
+---
+
+## 4. The spine of the demo
+
+One narrative, three layers, one telemetry pipeline:
+
+1. A **voltage sag** propagates on a weak rural feeder (electrical plane).
+2. The DC charger **derates** and the AC post **drops a session** (OT control plane, OCPP).
+3. The CSMS sees failed `StartTransaction`, degraded power delivery, and an auth retry storm (IT plane).
+
+The sag is a metric with an exemplar; the derate is a span in the session trace; the CSMS failure is a
+log with a trace ID. **If a reader can follow that single event from a millisecond-class PQ event to an
+application error, the project has succeeded.**
+
+Everything else in the repo exists to make that journey possible at realistic fidelity.
+
+---
+
+## 5. Architecture
+
+### 5.1 Planes
+
+```
+  GENERATION / GRID            SITE / CHARGING              BEHIND THE METER          IT / DIGITAL
+  -------------------          ---------------              ----------------          ------------
+  MV/LV transformer            AC posts (7-22 kW)           Solar PV inverter         CSMS application
+  Feeder + protection          DC fast charger (50-350 kW)  Battery + inverter        OCPP gateway
+  Power quality (V/I/THD/PF)   Load management              Home meter (NMI)          Auth / payments
+  Solar farm (utility-scale)   DC fast charger (50-350 kW)  Battery + inverter        OCPP gateway
+  Wind farm (utility-scale)    Load management              Home meter (NMI)          Auth / payments
+  Frequency / ROCOF            OCPP <-> CSMS                Wallbox (OCPP/Mode 3)     Database
+  Spot price (NEM)             Site energy meter            EV (SoC, taper curve)     Observability stack
+```
+
+Cross-cutting, present at every plane: **link/backhaul health** (4G / Starlink / fibre), **time
+accuracy**, **data quality**, **alarms**.
+
+### 5.2 Site archetypes (D7)
+
+| Site | Location model | Grid reality | Backhaul | What it uniquely demonstrates |
+|---|---|---|---|---|
+| **Metro depot + home** | Melbourne | Strong, 3-phase, PF ~0.98 | Fibre, 5 ms | Solar + battery + wallbox, negative midday spot price, charge-on-solar, home energy flows |
+| **Highway charging hub** | Hume / Ballarat | 3-phase, DNSP connection cap (e.g. 200 kVA), export limit | 4G, 30–80 ms, occasional loss | Load management under a hard capacity cap, dynamic current allocation, DC charger module switching |
+| **Weak rural end-of-line** | Broken Hill / Mildura | Long feeder, poor voltage regulation, sags, harmonics, high unbalance | 4G, 80–250 ms, 1–3% loss, outages | The §4 story. PQ events, sag classification, charger derate, stale-data handling |
+| **Isolated microgrid** | Coober Pedy / Longreach | Off-NEM: solar + wind + BESS, own frequency droop, load shedding | Satellite, 500–700 ms, long multi-hour outages | Frequency as a first-class signal, BESS SoC, curtailment, **days-long store-and-forward** |
+| **Solar farm** *(generation)* | Near Mildura / Broken Hill | Grid-connected, high irradiance, export-limited | 4G, 30–80 ms | Utility-scale PV: irradiance, panel temperature, DC/AC ratio + clipping, inverter/string availability, curtailment, spot-price-driven behaviour |
+| **Wind farm** *(generation)* | Near Port Augusta / Snowtown | Grid-connected, strong wind resource | Fibre, 10–20 ms | Wind speed/direction, per-turbine variance, farm-level smoothing, nacelle availability, curtailment, frequency contribution |
+
+Build order: the **weak rural end-of-line** (site 3 — the §4 story) and **one generation site** come first;
+between them they prove the collector pattern for a tiny remote load *and* a large remote source. The
+metro site and the microgrid follow. Load management (site 2) is last, because it is a control story
+rather than a telemetry story.
+
+### 5.3 Collector topology — two layers, and only two (D16)
+
+**Yes: there is a collector at each remote site, and yes, they fan in.** This is the standard OTel
+agent→gateway pattern, not a bespoke design.
+
+- **Layer 1 — edge collector, one per site, inside the OT zone.** The only thing on site that talks
+  outward. It normalises units/scale/sign/tag names, attaches quality and both timestamps, applies
+  deadband and downsampling, buffers to disk, and emits **OTLP/gRPC northbound and nothing else**.
+- **Layer 2 — hub collector, one, in the NOC/IT zone.** Receives OTLP from every edge, checks ordering,
+  enriches, tail-samples, fans out to N backends, and emits its own telemetry back into the pipeline.
+
+Why the edge collector must be local, and why there are exactly two layers, is argued in D16. In short:
+devices cannot speak OTLP, links fail, and cardinality has to be shed at the source — but four-to-seven
+sites do not justify a regional aggregation tier, and adding one before it is needed is the kind of
+"complex" that is not "necessary".
+
+```
+  ┌─ SITE (edge, OT zone) ───────────────────────────────┐
+  │  device sims / device poller (site-local network)     │
+  │   modbus/sunspec · ocpp charge point · meters         │
+  │  ┌────────────────────────────────────────────────┐   │
+  │  │ EDGE COLLECTOR             (one per site)      │   │
+  │  │  receivers : otlp ← local device poller,       │   │
+  │  │              hostmetrics                       │   │
+  │  │  processors: resource(site · geo) → transform  │   │
+  │  │              (units, scale, sign, tags) →      │   │
+  │  │              quality + dual timestamps →       │   │
+  │  │              filter/delta (deadband)           │   │
+  │  │  exporters : otlp/hub                          │   │
+  │  │  durability: file_storage + sending_queue      │   │
+  │  └────────────────────────────────────────────────┘   │
+  └──────────────┬────────────────────────────────────────┘
+                 │ OTLP/gRPC over impaired link
+                 │ (toxiproxy: latency · loss · bandwidth · outage)
+                 ▼
+  ┌─ NOC (IT zone, hub) ──────────────────────────────────┐
+  │  HUB COLLECTOR            (one; more only if needed)  │
+  │   receivers : otlp                                     │
+  │   processors: order/dedupe · enrich · tail_sampling    │
+  │   connectors: routing / forward                        │
+  │   exporters : debug · local stack · vendor (all OTLP)  │
+  │   self-telemetry → same pipeline                       │
+  └──────────────┬─────────────────────────────────────────┘
+                 ▼
+        any OTLP endpoint (D2 / D15)
+```
+
+Three deliberate demonstrations:
+
+- **The collector as the OT/IT boundary.** The edge collector is the only thing in the OT zone that talks
+  outward: protocol adapter, trust boundary, buffer and sampling-policy engine in one. In app-land the
+  collector is plumbing; here it is load-bearing infrastructure.
+- **The collector as a store-and-forward historian substitute.** When a satellite link is down for six
+  hours, backpressure becomes a design problem (drop? downsample? buffer?), and the answer is visible in
+  the collector's own metrics.
+- **The collector as the agent.** With no OneAgent or ActiveGate anywhere (D15), the collectors are the
+  only software we deploy to the estate. If the topology works, it works because OTel worked.
+
+**Honest limitation.** There is no Modbus receiver in OTel core or contrib. A small **device poller**
+beside the edge collector speaks the device protocol and forwards OTLP; the collector remains the gateway
+for everything northbound. Extracting that poller into a real `modbus` receiver is contribution candidate
+§11.4, and is deliberately not attempted before M1–M2 have shown which transformations every integrator
+actually writes by hand.
+
+**Build order for this layer.** Before any domain simulator exists, prove the layering with the
+off-the-shelf OTLP generator `telemetrygen` standing in for each site:
+generator → edge collector → impaired link → hub collector → debug. That is M0, and it is deliberately
+domain-free.
+
+### 5.4 Network impairment (D11)
+
+Timing/fault injection lives outside the simulator: an impairment proxy in front of each site's OTLP
+egress, plus an HTTP fault-injection API on the world model so a scenario is one command:
+
+```
+make fault SITE=broken-hill FAULT=voltage-sag
+make link  SITE=coober-pedy  PROFILE=degraded    # 600ms, 5% loss, 256 kbit/s
+make link  SITE=coober-pedy  PROFILE=down        # hard outage, watch the queue grow
+```
+
+Tool choice to confirm in M0: toxiproxy (easy, cross-platform, per-proxy controls) vs `tc netem`
+(no extra container, but requires privileged netns and is awkward on Docker Desktop for macOS). Leaning
+toxiproxy for portability.
+
+### 5.5 Time and quality (D12)
+
+- Every OT reading carries **two timestamps**: when the device says it happened, and when the collector
+  observed it. Sites in this network have no reliable NTP, so these diverge — deliberately.
+- Every reading carries a **quality/validity** attribute. Polling protocols have no native notion of
+  "this value is 30 minutes old because the link dropped"; that has to be attached.
+- Sequence-of-events ordering is checked at the hub: if a remote site's clock has drifted, an event can
+  appear before its own cause. This is a real OT problem and a strong teaching moment.
+
+---
+
+## 6. Semantic model (`energy.*`)
+
+OTel semantic conventions have almost nothing for electrical or energy domains. We define a small,
+reviewable registry rather than ad-hoc attribute names (D6), authored with **Weaver** so the simulated
+telemetry can be validated against it in CI.
+
+Entity hierarchy — note which identifiers are *real world* and therefore familiar to domain readers:
+
+```
+energy.grid (NEM / SWIS / isolated)
+  └── energy.site                     id, nmi, dnsp, lat/lon, connection cap (kVA)
+        ├── energy.transformer        kva_rating, vector_group, tap_position, winding/oil temp
+        ├── energy.feeder             bay, protection group, voltage level
+        ├── energy.meter (NMI)        phases, ct ratio, energy registers
+        ├── energy.inverter (PV)      sunspec model, mppt strings, export limit
+        ├── energy.bess               soc, soh, c-rate, round-trip efficiency
+        ├── energy.genset             fuel level, run hours, output
+        └── energy.evse               ocpp identity, connector count, max current
+              └── energy.connector    plug type (CCS2/Type2), status, cable temp
+                    └── energy.session  transaction id, EVSE id, energy delivered
+                          └── energy.vehicle  (opaque id; SoC, requested vs delivered)
+```
+
+Open items to resolve before the registry is frozen (tracked in §11): attribute vs resource placement,
+naming (`energy.*` vs proposing into `solar.*`/`grid.*`), and whether quality becomes an OTel-wide
+concept (`otel.data_point.quality`) rather than an energy-local one.
+
+---
+
+## 7. Backend, visualisation and vendor neutrality (D2, D3)
+
+Three layers, deliberately decoupled:
+
+1. **Pipeline** — collectors, always present, always the same. Exporters are the only thing that changes.
+2. **Visuals** — a national map of Australia (site markers, generation vs load, live state), drill-down to
+   a per-site one-line mimic, plus trends and an ISA-18.2-shaped alarm list. All fed from the pipeline,
+   never from the simulators and never via a vendor agent (D18). The map is the primary storytelling
+   surface for video and blog.
+3. **Real backend** — not shipped as a default. Documented recipes: a local light stack, Dynatrace, and
+   "point it at anything that accepts OTLP".
+
+```
+make up                       # sims + edge collectors + hub + local visual stack
+make up STACK=debug           # collectors only, debug exporter (CI / pipeline debugging)
+make up STACK=dynatrace       # adds an OTLP exporter to your environment
+```
+
+**Dynatrace is first-class, but agent-free.** Reached as `otlphttp` from the hub to Dynatrace's native
+OTLP ingest endpoint, with an API token from the environment. No OneAgent, no ActiveGate (D15). The repo
+also documents how OT-only concepts (quality/staleness, dual timestamps, per-phase values) land in
+Dynatrace, because no generic backend models them for you.
+
+**Resolved (was open question 3):** the default `make up` ends in a **visual**, not in log output. A
+first-run that is log output cannot serve the goal of this repo.
+
+---
+
+## 8. Resource budget (D10)
+
+Target: whole default stack ≤3 GB RSS and ≤4 GB disk on M2/8 GB, arm64 only.
+
+- Collectors: ~40–80 MB each. Four edge + one hub is fine; this is the cheap part.
+- The expensive parts are backends (Loki/Tempo/Mimir/Grafana) and any JVM/DB pair (SteVe + MySQL).
+  Both are therefore optional profiles.
+- CSMS approach: a **minimal but protocol-real OCPP 1.6J/2.0.1 CSMS** as a test double in the site
+  simulator (Python/Node, ~tens of MB) for the default path, with a "real CSMS" optional profile for
+  anyone who wants it. The OCPP wire protocol is what matters for telemetry; the CSMS's storage engine
+  is not. Revisit if this proves to undercut realism (D4).
+- Aggressive image hygiene: slim/base images, one shared Python base for all simulators, no rebuilds per
+  site (one image, parameterised by env — sites differ by config, not by code).
+
+---
+
+## 9. Milestones
+
+The ordering is **thin end-to-end first, then thick**. The §4 narrative must be reachable early; a repo
+about inspiration that only becomes inspiring at M5 is mis-sequenced.
+
+| M | Deliverable | Exit criteria |
+|---|---|---|
+| **M0** | **Collector topology, proved** ✅ | Done: `make up` brings up two edge collectors + impaired link + hub, using `telemetrygen` as a stand-in source. All three signals cross the link; edge stamps site identity + geo; disk queue fills during an outage and drains after. 146 MiB for the whole stack, recorded in `docs/sizing.md`. No domain code. **Outstanding:** local visual stack choice. **Resolved in M1b** — chosen on measured RAM, see D24. |
+| **M1** | **Generation + one load, roughly end to end** | **M1a ✅ (2026-10-14):** the weak-rural site carries real OT data — SunSpec/Modbus meter → poller → edge (names, units, sign, quality, dual timestamps) → impaired link → hub; a voltage sag runs end to end; deadband at the source. **M1b part 1 ✅ (2026-10-14):** the map of Australia and the per-site one-line mimic, both fed only from the pipeline; the local visual stack chosen on measured RAM (D24); two cardinality/memory bugs found and fixed on the way (D25, D26). **M1b part 2 ✅ (2026-10-15):** the solar site runs a real SunSpec/Modbus inverter (models 103/160/302/303/123) and the wind farm is a third, independently instrumented site (six turbines, its own edge collector, OT network and link profile); `telemetrygen` is gone from the default path and all three devices share one image. |
+| **M2** | **Sessions as traces** | OCPP CP sim + CSMS-lite → session traces (boot → authorize → start → metervalues → stop), logs for protocol frames, metrics for energy. A metric exemplar links to its session trace. Completes the three-signal story. |
+| **M3** | **Hard cases** | Metro depot + isolated microgrid; store-and-forward verified through a simulated multi-hour outage; clock skew makes an event appear before its cause at the hub. Still no OpAMP (D8). |
+| **M4** | **Breadth + registry** | Highway hub load management under a capacity cap; full `energy.*` registry in place and validated; per-phase cardinality control measured. |
+| **M5** | **SLOs + scripted demo** | Alarms/SLOs (session success rate, time-to-first-power, delivered vs requested kWh, PQ event exposure); `make demo` runs the whole story reproducibly. |
+| **M6** | **Polish + contribute back** | README walks a newcomer through the pipeline and the map; Weaver registry validated in CI; upstream component(s) proposed; OpAMP as an optional stretch. |
+
+Not parallel where it matters: M0 before M1 (do not debug a domain simulator and a collector topology at
+the same time), and M1 before M2 (traces without correct metric semantics produce pretty nonsense).
+
+---
+
+## 10. Repo layout (proposed)
+
+```
+notes.txt                  original brief (frozen)
+plan.md                    this file — decisions + roadmap
+README.md                  newcomer walkthrough (written at M6, stubbed earlier)
+docs/
+  ot-primer.md             electrical/OT primer for IT people
+  domains/                 per-plane inventories: grid, site, behind-the-meter, IT
+  sizing.md                measured RAM/disk per component (M0)
+  standards.md             which specs each simulator claims to represent, and how faithfully
+sim/
+  world-model/             physics + profiles + fault injection API
+  site/                    device sims (modbus/sunspec, ocpp cp, meters) — one parameterised image
+  generation/              solar farm + wind farm sims (clean energy only, D17)
+  csms/                    OCPP CSMS test double (+ optional real-CSMS profile)
+collector/
+  edge/*.yaml              per-archetype edge collector configs
+  hub/*.yaml               hub pipelines, routing, sampling, fanout
+  otlp-exporters/*.yaml    backend recipes (debug/local/dynatrace/...)
+schema/                    Weaver registry: energy.* semconv
+hmi/                       visuals, all pipeline-fed (D18):
+  map/                     Australia map: sites, generation vs load, live state
+  mimic/                   per-site one-line diagram
+  alarms/                  ISA-18.2-shaped alarm list
+impairment/                toxiproxy config + link profiles
+compose/                   docker-compose.yml + profiles
+dashboards/                provisioned-as-code for whatever stack is chosen
+scenarios/                 make-able fault/link/session scenarios
+Makefile
+```
+
+---
+
+## 11. Contribution candidates (D6)
+
+Ranked by (gap size × our ability to demonstrate it), not by ease:
+
+1. **OT data quality semantics.** Validity/staleness/comms-lost as a first-class property of a metric or
+   data point, with an exemplar-quality path. Every OT protocol has this (DNP3 quality flags, OPC UA
+   StatusCode); OTel does not. Highest-value gap in the whole project.
+2. **Source-vs-receive time semantics.** A convention for "the device says it happened then, I observed it
+   now" so that skewed remote clocks are representable rather than silently wrong.
+3. **Energy/electrical semantic conventions.** The `energy.*` registry, published via Weaver, with units
+   and per-phase structure that matches IEC practice (L1/L2/L3, pu, PF sign convention).
+4. **An OT-facing collector receiver or connector** for a polling protocol (Modbus/SunSpec is the most
+   reusable; OCPP is arguably better as a connector from logs/events). Only after M1–M2 shows exactly
+   which transformations every integrator ends up writing by hand.
+5. **Documentation**: "OT telemetry patterns" — deadband, store-and-forward, polling vs event, quality,
+   time. The collector's existing capabilities solve most of these, but nobody has written the OT-shaped
+   guide.
+6. **A `deadband` / change-of-state processor.** Stateful, drops a data point unless the value moved
+   more than a threshold since the last one. Every OT historian and every RTU has this; OTel contrib
+   does not. Demonstrated by hand in `sim/poller/` at M1a.
+
+Rule: nothing gets written upstream until it has been painful in this repo twice (rule of two).
+
+---
+
+## 12. Risks and rabbit holes
+
+| Risk | Mitigation |
+|---|---|
+| Domain depth explodes (IEC 61850, DLMS/COSEM, ISO 15118, PMU/`C37.118`) | Explicit out-of-scope list (§2); `docs/standards.md` states fidelity honestly per protocol. |
+| Backend sprawl eats the RAM budget | D10 is a hard gate; measure in M0 before choosing (D2 keeps backends swappable). |
+| Simulator code becomes the project (more LOC than pipeline) | D5: reuse first; custom code is limited to the world model, the CSMS test double and the HMI. |
+| "Realistic" quietly becomes "invented" | Every simulated value has a spec or a physical formula behind it, cited in `docs/standards.md`. |
+| Notification/alarm flood makes the demo unwatchable | ISA-18.2-style alarm discipline is a design requirement for the HMI, not polish. |
+| arm64 image gaps (some OT/CSMS images are x86-only or JVM+DB heavy) | M0 image audit; prefer Node/Python/Go; fall back to our own test double (D5). |
+| Metric cardinality from 1s three-phase polling across N sites | Treated as a feature: the repo shows deadband, aggregation and cardinality control at the edge, with the numbers to prove it. |
+
+---
+
+## 13. Open questions
+
+1. ~~Deliverable, vendor neutrality, electrical depth, custom code, scale, OpAMP, runtime~~ — answered, see §3.
+2. ~~**Local stack**: Perses + Prometheus + Jaeger, or Grafana OSS? Decide in M0 on measured RAM (D10).
+   Hard requirements: fed over OTLP from the hub only, and needs no vendor agent (D15, D18).~~
+   **Resolved in M1b:** all three candidates were run and measured (80 / 162 / 276 MiB); RAM did not
+decide it and the shape of the mimic did. Prometheus + Jaeger + our own `hmi/`, Perses optional.
+   See D24 and `docs/sizing.md`.
+3. ~~**`make up` default**: sims + edge collectors + hub + debug exporter only — agree? It makes the repo
+   runnable on 8 GB with zero backend decisions, but the first-run experience is log output.~~
+   **Resolved:** default ends in a visual (map + mimic), not log output; `STACK=debug` remains for CI.
+   See §7.
+4. **Electricity market realism**: is live NEM spot price (with negative prices) in scope for site 1, or
+   a static tariff table? Live data means an external dependency; a table means a cron-shaped simulator.
+5. **Naming**: keep `energy.*` as the registry prefix, or split `grid.*` / `solar.*` / `ev.*` to align with
+   how separate OTel SIGs think? Affects §11.3's reviewability.
+6. **Public naming of the whole project** — "virtual e-charging network" is descriptive, not memorable.
+   Not urgent; matters at M6 when people have to find it.

@@ -1,0 +1,4 @@
+kind: Project
+metadata:
+  name: vecn
+spec: {}

@@ -1,0 +1,368 @@
+# M0 — the collector topology, proved, with no domain code at all (plan.md §9).
+#
+#   meter sim (Modbus TCP) <--poll-- poller   <- the rural site's real device path (M1a)
+#   inverter sim (Modbus TCP) <--poll-- poller <- the solar farm's real device path (M1b)
+#   turbine-farm sim (Modbus TCP) <--poll-- poller <- the wind farm's real device path (M1b)
+#        |
+#        v
+#   edge collector   (one per site)           <- OT zone boundary, disk-backed queue
+#        |
+#        v   OTLP/gRPC, over the impaired link
+#   toxiproxy        (the WAN)                <- latency / loss / bandwidth / outage
+#        |
+#        v
+#   hub collector    (one)                    <- NOC / IT zone
+#        |
+#        v   OTLP, shed of per-sample attributes on the visual path
+#   prometheus + jaeger                        <- the local visual stack (D3)
+#        |
+#        v   PromQL over the same origin (nginx /prom)
+#   hmi                                        <- map of Australia + one-line mimic (D18)
+#
+# Both generation sites are real now: the solar farm runs a SunSpec/Modbus inverter and the wind
+# farm a six-turbine SunSpec-shaped device, both behind the same poller and the same image as the
+# rural meter (M1b part 2).
+#
+# Three sites, so that fan-in is visible from the first command.
+
+name: otel-ot
+
+x-collector: &collector
+  # NB: pin deliberately. 0.116.0's arm64 image is published empty and fails with
+  # "exec /otelcol-contrib: no such file or directory" — checked, not assumed (D10).
+  image: otel/opentelemetry-collector-contrib:0.130.0
+  restart: unless-stopped
+  command: ["--config=/etc/otel/config.yaml"]
+
+# One image, two roles: the Modbus device simulator and the Modbus -> OTLP poller. Shared
+# sunspec.py keeps the register encoder and decoder in step. Parameterised by environment
+# only (D10).
+x-sim: &sim
+  build:
+    context: ../sim
+  restart: unless-stopped
+
+x-generator: &generator
+  image: ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest
+  restart: unless-stopped
+  profiles: [generator]   # unused by default; kept so an OTLP-only smoke test is one flag away
+
+networks:
+  ot-rural: {}   # site 3, OT zone
+  ot-solar: {}   # solar farm, OT zone
+  ot-wind: {}    # wind farm, OT zone
+  wan: {}        # the impaired link between site and NOC
+  noc: {}        # NOC / IT zone
+
+volumes:
+  edge-rural-queue: {}
+  edge-solar-queue: {}
+  edge-wind-queue: {}
+  prometheus-data: {}
+
+services:
+
+  # ---- the WAN -------------------------------------------------------------------
+  # One container, two proxies: each site gets its own link so it can be degraded
+  # independently. `make link SITE=... PROFILE=...` drives these (plan.md §5.4).
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.11.0
+    restart: unless-stopped
+    command: ["-host=0.0.0.0", "-config", "/config/toxiproxy.json"]
+    volumes:
+      - ../impairment/toxiproxy.json:/config/toxiproxy.json:ro
+    ports:
+      - "8474:8474"   # toxiproxy control API
+    networks: [wan]
+
+  # ---- NOC / IT zone -------------------------------------------------------------
+  hub:
+    <<: *collector
+    environment:
+      # The hub fans out to the local visual stack (D3, D18) - and this is the *only*
+      # place a backend endpoint appears. Swapping the local stack for a real backend, or
+      # adding a second one, is a change to these two lines and nothing else (D2, D15).
+      # Neither endpoint receives anything scraped from a simulator: this is the pipeline's
+      # own output, one hop downstream of the impaired link.
+      VISUAL_METRICS_ENDPOINT: "http://prometheus:9090/api/v1/otlp"
+      VISUAL_TRACES_ENDPOINT: "jaeger:4317"
+    volumes:
+      - ../collector/hub/hub.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP/gRPC - point any backend or CLI at this
+      - "4318:4318"   # OTLP/HTTP
+      - "8889:8889"   # hub self-telemetry (Prometheus)
+    networks: [wan, noc]
+
+  # Not part of the story: an ops box used by `make queues` to read the edge
+  # collectors' own metrics. The collectors are distroless, so there is no shell
+  # to exec into; reading their self-telemetry is the OTel-native way anyway.
+  ops:
+    image: alpine:3.20
+    entrypoint: ["sh", "-c", "sleep infinity"]
+    networks: [wan, noc]
+
+  # ---- the local visual stack (D3, D18) -------------------------------------------
+  #
+  # Prometheus 3 and Jaeger v2, both fed over OTLP by the hub and by nothing else. Chosen
+  # over Grafana OSS on measured RAM and on the shape of the one-line mimic (plan.md D24):
+  # Grafana cost 123 MiB to Perses' 23, and neither draws an SVG mimic with values in
+  # place, which is the thing the domain reader actually asks for. So the views are ours
+  # (hmi/) and they read the store; Perses stays available as an optional profile for
+  # anyone who wants a familiar dashboard, and nothing depends on it.
+  #
+  # Note Jaeger v2 is itself an OpenTelemetry Collector distribution - so even the trace
+  # store is a collector, and no vendor agent enters the estate (D15).
+  prometheus:
+    image: prom/prometheus:v3.1.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # 6h is a proof-of-life retention (D3), not a historian. The edge queues, not this
+      # disk, are the store-and-forward story.
+      - --storage.tsdb.retention.time=6h
+      - --web.enable-otlp-receiver
+    volumes:
+      - ../dashboards/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    # Deliberately publishes no host port. Port 9090 is already held on this machine by an
+    # unrelated ssh port-forward, and a silently-unbound Docker mapping is exactly the trap
+    # NEXT.md 7.4 records for 8888. `make prom Q='...'` queries it through the ops box on the
+    # compose network instead - the same OTel-native habit as `make queues`.
+    networks: [noc]
+
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.19.0
+    restart: unless-stopped
+    # The v2 image ships no config at all (distroless, binary at /cmd/jaeger/jaeger-linux).
+    command: ["--config", "/etc/jaeger/config.yaml"]
+    volumes:
+      - ../dashboards/jaeger/jaeger.yaml:/etc/jaeger/config.yaml:ro
+    # 16686 is also taken on this machine (the same ssh port-forward), so the UI is on an
+    # overridable free port.  JAEGER_PORT=16686 make up  if your machine is clear.
+    ports:
+      - "127.0.0.1:${JAEGER_PORT:-16687}:16686"
+    networks: [noc]
+
+  # Our own views: a map of Australia and a one-line mimic per site (D18). Static files,
+  # no build step, no framework. nginx serves them and reverse-proxies /prom/ to
+  # Prometheus, so the page has one origin, needs no CORS dance, and the browser never
+  # talks to the metrics store directly.
+  hmi:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ../hmi:/usr/share/nginx/html:ro
+      - ../hmi/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    # Loopback only, and on an overridable port: 8090 is held here by the ssh port-forward
+    # noted above.  HMI_PORT=8090 make up  on a machine where 8090 is free.
+    ports:
+      - "127.0.0.1:${HMI_PORT:-8091}:80"   # this is the proof of life: `make up` ends here
+    depends_on: [prometheus]
+    networks: [noc]
+
+  # Optional, and nothing depends on it (plan.md D24). Deliberately not started by
+  # `make up`; `make up STACK=perses` brings it in. 23 MiB, dashboards as YAML.
+  perses:
+    profiles: [perses]
+    image: persesdev/perses:v0.50.0
+    restart: unless-stopped
+    command: ["--config", "/etc/perses/config.yaml"]
+    volumes:
+      # Mount the config file and the provisioning folder, NOT /etc/perses as a whole:
+      # the image keeps its CUE panel/query schemas there and shadowing them is fatal.
+      - ../dashboards/perses/config.yaml:/etc/perses/config.yaml:ro
+      - ../dashboards/perses/provisioning:/etc/perses/provisioning:ro
+    ports:
+      - "127.0.0.1:8080:8080"
+    networks: [noc]
+
+  # ---- site 3: weak rural end of line (OT zone) ----------------------------------
+  edge-rural:
+    <<: *collector
+    user: "0:0"   # image runs as 10001, but the disk-backed queue is a root-owned volume
+    environment:
+      SITE_ID: rural-brokenhill
+      SITE_NAME: Broken Hill EV Charging Site
+      SITE_KIND: charging_site
+      SITE_LAT: "-31.9539"
+      SITE_LON: "141.4539"
+      HUB_ENDPOINT: toxiproxy:14317
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+      - edge-rural-queue:/var/lib/otelcol/queue
+    # Deliberately no host ports: nothing inside the OT zone is reachable from outside.
+    depends_on: [toxiproxy]
+    networks: [ot-rural, wan]
+
+  # ---- site 3: the Modbus/SunSpec meter and its poller (OT zone) ------------------
+  # The device-facing half of M1a. The meter speaks Modbus TCP and nothing else; the poller
+  # reads it and forwards OTLP to the edge collector. Neither publishes a host port, so the
+  # OT zone stays unreachable from outside - which is also why `make fault` execs into the
+  # device container rather than curling it from the host.
+  device-rural:
+    <<: *sim
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_ID: meter-rural-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_PORT: "5020"
+      HTTP_PORT: "8080"
+      # No NTP at a site like this (plan.md 5.5), so the device clock is deliberately 7 s
+      # behind. That is the whole point of the dual-timestamp story.
+      DEVICE_CLOCK_SKEW_S: "-7"
+      NOMINAL_VOLTAGE: "230"
+      ENERGY_BASE_KWH: "42917.3"
+      # Vendor word order for the 32-bit energy accumulators. "low" reproduces the reversed
+      # order that a naive (reg0 << 16) | reg1 decode gets catastrophically wrong.
+      WORD_ORDER: low
+    networks: [ot-rural]
+
+  poller-rural:
+    <<: *sim
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_ID: meter-rural-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_HOST: device-rural
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-rural:4318"
+      POLL_INTERVAL_MS: "1000"
+      # The scan is 1 Hz; the report to the edge is every 5 s. Keep these distinct. Tying the
+      # OTLP export interval to the poll interval made the poller open a gRPC export per
+      # second - 1 106 metric points a minute crossing a link whose whole story is that it is
+      # a 4G backhaul - and it is the deadband's opposite: a steady register is not worth a
+      # message. This value is also the pipeline's time resolution on the diagram.
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "230"
+    depends_on: [device-rural, edge-rural]
+    networks: [ot-rural]
+
+  # ---- solar farm: utility-scale generation (OT zone) ----------------------------
+  edge-solar:
+    <<: *collector
+    user: "0:0"   # image runs as 10001, but the disk-backed queue is a root-owned volume
+    environment:
+      SITE_ID: solar-mildura
+      SITE_NAME: Mildura Solar Farm
+      SITE_KIND: solar_farm
+      SITE_LAT: "-34.1850"
+      SITE_LON: "142.1620"
+      HUB_ENDPOINT: toxiproxy:14318
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+      - edge-solar-queue:/var/lib/otelcol/queue
+    # Deliberately no host ports: nothing inside the OT zone is reachable from outside.
+    depends_on: [toxiproxy]
+    networks: [ot-solar, wan]
+
+  # ---- solar farm: the SunSpec/Modbus inverter and its poller (OT zone) -----------
+  # Same image and same poller as the rural meter; only DEVICE_KIND and the electrical
+  # ratings differ (D10). The register file is the M1b inverter map: model 103 (three-phase
+  # inverter), model 160 (two MPPT blocks), 302/303 (irradiance and temperatures), 123
+  # (export limit) and vendor 64001.
+  device-solar:
+    <<: *sim
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_KIND: inverter
+      DEVICE_ID: inv-solar-01
+      DEVICE_MODEL: VECN SIM-INVERTER-3P
+      MODBUS_PORT: "5020"
+      HTTP_PORT: "8080"
+      # This site's clock has drifted *ahead* by 4 s; the rural meter is 7 s behind. Skew in
+      # both directions is what makes the dual-timestamp story visible rather than theoretical.
+      DEVICE_CLOCK_SKEW_S: "4"
+      # DC/AC = 5300/4200 = 1.26. The array is oversized against the inverter on purpose, so
+      # the AC curve has a flat top around solar noon on a clear day: visible clipping.
+      AC_RATING_KW: "4200"
+      DC_RATING_KWP: "5300"
+      EXPORT_LIMIT_KW: "4200"
+      NOMINAL_VOLTAGE: "398"           # 690 V line-line / sqrt(3), a standard utility inverter
+      ENERGY_BASE_KWH: "41800000"      # lifetime AC production before this session
+      WORD_ORDER: low
+      SIM_CLOCK_HOUR: "${SOLAR_CLOCK_HOUR:-}"
+      # Real local time by default, so the irradiance curve is an honest one. Set
+      # SOLAR_CLOCK_HOUR to a daytime hour for a demo that has to run at night:
+      #   make up SOLAR_CLOCK_HOUR=12
+    networks: [ot-solar]
+
+  poller-solar:
+    <<: *sim
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_KIND: inverter
+      DEVICE_ID: inv-solar-01
+      DEVICE_MODEL: VECN SIM-INVERTER-3P
+      MODBUS_HOST: device-solar
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-solar:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "398"
+      AC_RATING_KW: "4200"
+      DC_RATING_KWP: "5300"
+    depends_on: [device-solar, edge-solar]
+    networks: [ot-solar]
+
+  # ---- wind farm: utility-scale generation, third site (OT zone) ------------------
+  # A deliberately different regime from solar (D17): six turbines with independent wind,
+  # so per-machine output swings hard while the farm total stays comparatively steady. The
+  # backhaul is fibre (10-20 ms), the opposite of the rural site's hostile 4G link, so the
+  # same collector config is exercised on a good link as well as a bad one.
+  edge-wind:
+    <<: *collector
+    user: "0:0"   # image runs as 10001, but the disk-backed queue is a root-owned volume
+    environment:
+      SITE_ID: wind-snowtown
+      SITE_NAME: Snowtown Wind Farm
+      SITE_KIND: wind_farm
+      SITE_LAT: "-33.8167"
+      SITE_LON: "138.2167"
+      HUB_ENDPOINT: toxiproxy:14319
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+      - edge-wind-queue:/var/lib/otelcol/queue
+    depends_on: [toxiproxy]
+    networks: [ot-wind, wan]
+
+  device-wind:
+    <<: *sim
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_KIND: windfarm
+      DEVICE_ID: wf-snowtown-01
+      DEVICE_MODEL: VECN SIM-WIND-6X2.5MW
+      MODBUS_PORT: "5020"
+      HTTP_PORT: "8080"
+      # Best clock of the three sites: a short fibre backhaul means operators actually run
+      # NTP, so this one is only 2 s behind. Rural -7, solar +4, wind -2: skew in every
+      # direction, which is what makes the dual-timestamp story a measurement not a claim.
+      DEVICE_CLOCK_SKEW_S: "-2"
+      TURBINE_COUNT: "6"
+      RATED_KW_EACH: "2500"
+      EXPORT_LIMIT_KW: "15000"
+      NOMINAL_VOLTAGE: "398"
+      ENERGY_BASE_KWH: "8050000"
+      WORD_ORDER: low
+    networks: [ot-wind]
+
+  poller-wind:
+    <<: *sim
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_KIND: windfarm
+      DEVICE_ID: wf-snowtown-01
+      DEVICE_MODEL: VECN SIM-WIND-6X2.5MW
+      MODBUS_HOST: device-wind
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-wind:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "398"
+    depends_on: [device-wind, edge-wind]
+    networks: [ot-wind]
