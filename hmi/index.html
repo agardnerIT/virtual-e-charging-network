@@ -79,6 +79,18 @@
 
       <aside class="instruments">
         <section class="panel">
+          <h2>Alarms</h2>
+          <p class="caption" id="alarm-note">ISA-18.2-shaped: priority, first-out, suppression,
+            acknowledge. Derived from the telemetry on this page — no separate alarm engine.</p>
+          <table class="points alarms">
+            <caption class="sr-only">Active alarms for this site, highest priority first</caption>
+            <thead>
+              <tr><th scope="col">Pri</th><th scope="col">Alarm</th><th scope="col">First out</th><th scope="col">State</th><th scope="col">Ack</th></tr>
+            </thead>
+            <tbody id="alarms"></tbody>
+          </table>
+        </section>
+        <section class="panel">
           <h2 id="trend-title">Voltage, 15 minutes</h2>
           <svg id="trend" viewBox="0 0 540 210" role="img"
                aria-label="Per-phase voltage trend"></svg>

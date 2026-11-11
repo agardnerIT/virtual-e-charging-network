@@ -424,3 +424,17 @@ body {
   stroke: var(--l2, #4f7fae);
   stroke-width: 2.6;
 }
+
+/* Alarm list (M5, #13). Reads as a table, not as a dashboard: priority, what, when, state, ack.
+   The colour is on the priority cell and the state cell only, because a row that is entirely red
+   stops being readable — which is the same argument ISA-18.2 makes about alarm flood. */
+.alarms td { vertical-align: top; }
+.alarms button.ack {
+  font: inherit;
+  padding: 1px 8px;
+  border: 1px solid var(--rule, #c9c5bb);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.alarms button.ack:hover { background: var(--rule, #c9c5bb); }

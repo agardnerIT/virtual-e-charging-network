@@ -1159,6 +1159,161 @@ function renderMicrogridMimic(site, tpl, svg) {
   svg.innerHTML = parts.join('');
 }
 
+
+/* ------------------------------------------------------------------ alarms
+
+   An ISA-18.2-shaped alarm list, derived from the points already on this page. There is no alarm
+   engine and no state store: an alarm's condition is a predicate over telemetry, so the list
+   cannot drift from the data. ISA-18.2 is about rationalisation and suppression, and that is what
+   the ALARMS table below is — one row per *condition*, not per affected entity:
+
+     * the sag is ONE alarm with an affected-bay count, not twelve. An alarm flood on every sag is
+       the failure mode the primer warns about (docs/ot-primer.md §6);
+     * first-out is the oldest sample that satisfies the condition, which is what an operator
+       wants after the fact ("the sag was first, the bays followed");
+     * acknowledge is per browser session (localStorage), because modelling ack properly needs a
+       state store, and this page deliberately has none. The caption says so.
+
+   Priorities follow ISA-18.2's intent, not its arithmetic: High = act now, Medium = act soon,
+   Low = note it. */
+const ALARMS = [
+  {
+    id: 'supply-sag',
+    label: 'Supply voltage below 0.94 pu',
+    pri: 'High',
+    nominal: (site) => (site.kind === 'microgrid' ? 230 : (TEMPLATES[site.kind] || {}).evse === false ? 398 : 230),
+    test: (p, site) => p.def.slot === 'voltage'
+      && p.phase   // per-phase samples only: the aggregate hides a single-phased sag
+      && p.value !== null
+      && p.value < 0.94 * (site.kind === 'microgrid' ? 230 : (TEMPLATES[site.kind] || {}).evse === false ? 398 : 230),
+    // Which bays: the EVSEs at this site that are charging. The sag's own point does not know
+    // about bays, so the count comes from the same page's EVSE points.
+    affected: (site) => evalvesCharging(site).length,
+    affectedLabel: 'bay(s) charging through it',
+  },
+  {
+    id: 'bay-no-power',
+    label: 'Bay charging but delivering 0 kW',
+    pri: 'Medium',
+    // Two points per bay, so this one is a function of the site rather than a predicate.
+    custom: (site) => baysStuck(site),
+    affectedLabel: 'bay(s)',
+  },
+  {
+    id: 'bess-hold',
+    label: 'Grid former at a limit (hold)',
+    pri: 'Medium',
+    test: (p) => p.def.slot === 'hold_reason' && p.value !== null && p.value !== 0,
+  },
+  {
+    id: 'frequency',
+    label: 'Frequency outside 49.85–50.15 Hz',
+    pri: 'Medium',
+    test: (p, site) => p.def.slot === 'frequency' && site.kind === 'microgrid'
+      && p.value !== null && Math.abs(p.value - 50) > 0.15,
+  },
+  {
+    id: 'comms-lost',
+    label: 'Device not answering (quality comms-lost)',
+    pri: 'High',
+    test: (p) => pointState(p) === 'comms-lost',
+    affected: (site) => pointsFor(site.id).filter((p) => pointState(p) === 'comms-lost').length,
+    affectedLabel: 'point(s)',
+  },
+  {
+    id: 'curtailment',
+    label: 'Generation curtailed',
+    pri: 'Low',
+    test: (p) => (p.def.slot === 'curtailment' && p.value !== null && p.value !== 0),
+  },
+];
+
+/* Which bays are actually delivering power. Deliberately power > 0 rather than the OCPP state
+   enum: a bay can be in `Charging` and delivering nothing (that is its own alarm below), and
+   deriving "affected" from the same measurement the operator can see is the only way the count
+   and the mimic never disagree. */
+function evalvesCharging(site) {
+  return pointsFor(site.id).filter((p) => p.def.slot === 'evse_power' && (p.value || 0) > 0);
+}
+
+/* A bay in `Charging` with zero delivered power: the fault that looks fine on a status page and
+   is not fine. Two points, one bay — which is why it cannot be a single-point predicate. */
+function baysStuck(site) {
+  const stuck = [];
+  for (const p of pointsFor(site.id)) {
+    if (p.def.slot !== 'evse_state' || !p.evse) continue;
+    const stateText = p.labels.energy_evse_state_text;
+    if (stateText !== 'Charging') continue;          // the edge collector wrote the word
+    const power = pointsFor(site.id).find((q) => q.def.slot === 'evse_power' && q.evse === p.evse);
+    if (power && (power.value || 0) === 0) stuck.push(p.evse);
+  }
+  return stuck;
+}
+
+// Acknowledged alarm ids, per browser session only (localStorage). Deliberately not on the server:
+// there is no alarm state store, and pretending otherwise would be the one dishonest thing in a
+// list whose whole point is that it is derived from data.
+function ackKey(siteId, id) { return `vecn.ack.${siteId}.${id}`; }
+function isAcked(siteId, id) { try { return localStorage.getItem(ackKey(siteId, id)) === '1'; } catch { return false; } }
+function setAcked(siteId, id, up) {
+  try { up ? localStorage.setItem(ackKey(siteId, id), '1') : localStorage.removeItem(ackKey(siteId, id)); } catch { /* private mode */ }
+}
+
+function renderAlarms(site) {
+  const body = document.getElementById('alarms');
+  const points = pointsFor(site.id);
+  const active = [];
+
+  for (const a of ALARMS) {
+    let hits = [];
+    let affected = 0;
+    if (a.custom) {
+      const list = a.custom(site);
+      if (list.length === 0) continue;
+      affected = list.length;
+      hits = [{ ts: state.newestTs, value: null }];
+    } else {
+      hits = points.filter((p) => a.test(p, site));
+      if (hits.length === 0) continue;
+      affected = a.affected ? a.affected(site) : 0;
+    }
+    // First-out: the oldest sample that satisfies the condition. A point's ts is the store's
+    // receive time, which is the only clock comparable across entities (D42).
+    const firstOut = Math.min(...hits.map((h) => h.ts));
+    active.push({ a, firstOut, affected, count: hits.length });
+  }
+
+  const rank = { High: 0, Medium: 1, Low: 2 };
+  active.sort((x, y) => rank[x.a.pri] - rank[y.a.pri] || x.firstOut - y.firstOut);
+
+  if (active.length === 0) {
+    body.innerHTML = `<tr class="is-absent"><td colspan="5">No alarms. Conditions are evaluated on every poll against the points below.</td></tr>`;
+    return;
+  }
+
+  body.innerHTML = active.map(({ a, firstOut, affected, count }) => {
+    const acked = isAcked(site.id, a.id);
+    const age = Math.max(0, (state.newestTs - firstOut) / 1000);
+    const detail = a.affectedLabel && affected ? ` <span class="note">(${affected} ${a.affectedLabel})</span>` : '';
+    const priCls = a.pri === 'High' ? 'q-bad' : a.pri === 'Medium' ? 'q-stale' : 'q-good';
+    return `<tr>
+      <td class="q q-${a.pri === 'High' ? 'bad' : a.pri === 'Medium' ? 'stale' : 'good'}">${a.pri}</td>
+      <td>${a.label}${detail}${count > 1 && !a.affectedLabel ? ` <span class="note">(${count} points)</span>` : ''}</td>
+      <td>${age < LIVE_AGE_S ? 'just now' : fmtAge(age) + ' ago'}</td>
+      <td class="q ${acked ? 'q-good' : priCls}">${acked ? 'acked' : 'active'}</td>
+      <td><button type="button" class="ack" data-site="${site.id}" data-alarm="${a.id}">${acked ? 'un-ack' : 'ack'}</button></td>
+    </tr>`;
+  }).join('');
+
+  for (const b of body.querySelectorAll('button.ack')) {
+    b.addEventListener('click', (ev) => {
+      const id = ev.currentTarget.dataset.alarm;
+      setAcked(site.id, id, !isAcked(site.id, id));
+      renderAlarms(site);
+    });
+  }
+}
+
 function renderPoints(site) {
   const pts = pointsFor(site.id);
   const body = document.getElementById('points');
@@ -1297,6 +1452,7 @@ function render() {
     const site = state.sites.get(state.selected);
     if (!site) { state.selected = null; render(); return; }
     renderMimic(site);
+    renderAlarms(site);
     renderPoints(site);
     renderTrend(site);
   }

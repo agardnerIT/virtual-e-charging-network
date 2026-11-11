@@ -97,6 +97,8 @@ class CsmsState:
 
     def __init__(self) -> None:
         self.lock = threading.Lock()
+        #: Optional hook, set by the CSMS so a stop is counted where the meter is (SLOs, #13).
+        self.on_stop = None
         self.transactions: dict[int, Transaction] = {}
         self.next_transaction_id = 1
         self.charge_points: dict[str, dict] = {}
@@ -160,7 +162,12 @@ class CsmsState:
                 return None
             tx.meter_stop_wh = float(payload.get("meterStop", tx.last_meter_wh or 0.0))
             tx.stopped_at = time.time()
+            # OCPP 1.6's StopTransaction reason is what a session-success SLO is measured on:
+            # `Local` means the driver or the schedule ended it, `PowerLoss` means the supply
+            # did. Anything else is `Other`. Bounded vocabulary, so it is a safe attribute.
             tx.stop_reason = payload.get("reason", "Local")
+            if self.on_stop is not None:
+                self.on_stop(tx.stop_reason)
             return tx
 
     def snapshot(self) -> dict:
@@ -176,6 +183,9 @@ class Csms:
     """The OCPP message handlers. One instance per process; state is shared across connections."""
 
     def __init__(self, state: CsmsState, telemetry) -> None:
+        # The stop hook exists so the *state* object can stay a plain in-memory record while the
+        # counting lives where the meter is (SLOs, #13).
+        state.on_stop = self._count_stop
         self.state = state
         self.tracer = telemetry.tracer("vecn.ocpp-csms")
         self.meter = telemetry.meter("vecn.ocpp-csms")
@@ -185,6 +195,11 @@ class Csms:
             unit="1",
             description="Transactions the CSMS currently believes are open.",
         )
+        self._stopped = self.meter.create_counter(
+            "ocpp.transactions.stopped", unit="1",
+            description="Transactions the CSMS accepted a StopTransaction for, by OCPP 1.6 stop "
+                        "reason. Session success rate = Local / all.",
+        )
         self._started = self.meter.create_observable_gauge(
             "ocpp.transactions.total",
             callbacks=[self._observe_total],
@@ -193,6 +208,11 @@ class Csms:
         )
         LOG.info("CSMS online: blocked idTags=%s",
                  ",".join(sorted(self.state.blocked_id_tags)) or "(none)")
+
+    def _count_stop(self, reason: str) -> None:
+        # One counter, one bounded attribute. A per-transaction dimension here would mint a series
+        # per session for a number that is only ever read as a ratio (D25, D36).
+        self._stopped.add(1, {"ocpp.stop.reason": reason or "Other"})
 
     # -- metrics -----------------------------------------------------------------------
     def _observe_active(self, _options):

@@ -415,6 +415,29 @@ class Metrics:
             description="Energy delivered in the current OCPP transaction. One series per "
                         "transaction; the value is cumulative within it.",
         )
+        # --- the SLO instruments (M5, #13). Session-scoped and attribute-free on purpose: an
+        # SLO is a ratio over a fleet, and a per-session dimension here would mint a series per
+        # session for a number that is never read per session (D25, D36).
+        self.ttfp = meter.create_histogram(
+            "energy.session.time_to_first_power", unit="s",
+            description="Seconds from StartTransaction to the first watt delivered. The SLO "
+                        "an operator feels: a bay that says Charging but delivers nothing.",
+        )
+        self.requested = meter.create_counter(
+            "energy.session.energy.requested", unit="kW.h",
+            description="Energy the vehicle asked for (its requested current, capped by the "
+                        "EVSE rating) integrated over the session. Divide delivered by this.",
+        )
+        self.delivered = meter.create_counter(
+            "energy.session.energy.delivered", unit="kW.h",
+            description="Energy actually delivered. The pair with .requested is the delivered-"
+                        "vs-requested SLO: a derate or a sag shows up as a ratio below 1.",
+        )
+        self.pq_affected = meter.create_counter(
+            "energy.session.power_quality_affected", unit="1",
+            description="Sessions in which the supply-voltage derate engaged at least once. "
+                        "Divide by sessions stopped for a power-quality event exposure rate.",
+        )
 
     @staticmethod
     def _attrs(s: EvseSample) -> dict:
@@ -623,6 +646,10 @@ class ChargePoint:
         sag_started_at: float | None = None
         severe_since: float | None = None
         energy_kwh = 0.0
+        # SLO bookkeeping (M5, #13): the vehicle's ask vs what it got, and when power first flowed.
+        requested_kwh = 0.0
+        first_power_at: float | None = None
+        pq_affected = False
         meter_start_kwh = _envf("CP_METER_BASE_KWH", 1200.0)
         session_context = set_span_in_context(span)
         sample.context = session_context
@@ -688,6 +715,8 @@ class ChargePoint:
                     # The sag is a span in the session, not an event: it has a start, a
                     # depth, a derate response and an end. Starting it before the drop means
                     # the exemplar captured during the drop points at it (M2-7).
+                    if pu < DERATE_FULL_PU:
+                        pq_affected = True
                     if pu < DERATE_FULL_PU and sag_span is None:
                         sag_attrs = {
                             "energy.evse.id": evse.evse_id,
@@ -745,6 +774,16 @@ class ChargePoint:
 
                     power_w = sum(voltages) * offered * 0.98 if offered > 0 else 0.0
                     energy_kwh += power_w * dt / 3_600_000.0
+                    if power_w > 0 and first_power_at is None:
+                        first_power_at = now
+                    # What the vehicle asked for: its own current, capped by this EVSE's rating.
+                    # Deliberately not `offered`, which is already derated - the ratio between
+                    # the two is the SLO.
+                    # `vehicle_max_a` IS the vehicle's ask and the EVSE's rating in this model
+                    # (a 22 kW AC post at 32 A three-phase), so the ask needs no second cap - the
+                    # derate is what makes `offered` lower than it, and that gap is the SLO.
+                    ask_a = self.vehicle_max_a
+                    requested_kwh += sum(voltages) * ask_a * dt / 3_600_000.0
                     sample.power_w = round(power_w, 1)
                     sample.offered_a = offered
                     sample.session_kwh = round(energy_kwh, 4)
@@ -793,6 +832,19 @@ class ChargePoint:
                 LOG.warning("session on %s ended with error: %s", evse.evse_id,
                             f"{type(exc).__name__}: {exc}")
             finally:
+                # SLO observations, once per session (M5, #13). A session that never delivered a
+                # watt has no time-to-first-power to record - that is a different failure, and
+                # inventing a zero for it would hide it.
+                try:
+                    metrics = self.metrics
+                    if first_power_at is not None:
+                        metrics.ttfp.record(max(0.0, first_power_at - started))
+                    metrics.requested.add(requested_kwh)
+                    metrics.delivered.add(energy_kwh)
+                    if pq_affected:
+                        metrics.pq_affected.add(1)
+                except Exception:  # noqa: BLE001 - instrumentation must not kill the session
+                    LOG.debug("SLO instrumentation failed", exc_info=True)
                 if sag_span is not None:
                     sag_span.set_attribute("energy.sag.duration_s",
                                            round(time.time() - (sag_started_at or time.time()), 1))

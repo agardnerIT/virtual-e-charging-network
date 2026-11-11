@@ -184,7 +184,8 @@ phases):
 | `energy_meter_energy_kW_h` | kW.h | `energy_direction` | Cumulative register, import and export. |
 | `energy_meter_temperature_celsius` | Cel | — | Meter enclosure. |
 
-**The two charging sites** — charge point and sessions. Six series per bay:
+**The two charging sites** — charge point and sessions. Six series per bay, plus four
+session-scoped SLO instruments (§3.7):
 
 | Metric | Unit | Split by | What it is |
 |---|---|---|---|
@@ -318,6 +319,23 @@ modbus_device_clock_offset_seconds
 `make prom Q='...'` sends any of these through the `ops` box; Prometheus publishes no host port.
 
 ---
+
+### 3.7 The four session-level SLO instruments (M5, #13)
+
+These are the only metrics here that are **not** a device reading or an EVSE gauge: they are
+per-session outcomes, and they are attribute-free on purpose (an SLO is a ratio over a fleet; a
+per-session dimension would mint a series per session for a number nobody reads per session).
+
+| Metric | Type | Meaning |
+|---|---|---|
+| `ocpp_transactions_stopped_total{ocpp_stop_reason}` | counter | Sessions the CSMS accepted a `StopTransaction` for, by OCPP 1.6 reason: `Local` (normal), `PowerLoss` (the supply decided), `Other`. `Local / all` is the success rate. |
+| `energy_session_time_to_first_power_seconds` | histogram | StartTransaction → first watt delivered. The SLO an operator feels: a bay that says `Charging` and delivers nothing. |
+| `energy_session_energy_requested_kW_h_total` | counter | The **vehicle's** ask (its requested current) integrated over the session. |
+| `energy_session_energy_delivered_kW_h_total` | counter | What actually flowed. Delivered/requested is the derate-and-sag SLO. |
+| `energy_session_power_quality_affected_total` | counter | Sessions where the supply derate engaged at least once. Per 100 sessions, that is power-quality exposure. |
+
+`make slo` prints all four with their targets; [`docs/alarms.md`](alarms.md) is the reasoning behind
+the targets and the alarm list derived from the same data.
 
 ## 4. Traces
 

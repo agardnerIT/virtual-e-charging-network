@@ -137,7 +137,9 @@ empty answer; the join that works today is `ocpp.transaction.id` (D33).
 | `make fault SITE=rural FAULT=voltage-sag ARGS="--depth 0.6 --duration 30"` | inject the one fault this repo models; `FAULT=clear` clears it |
 | `make curtail SITE=solar PCT=60` · `make link SITE=wind PROFILE=down` | operator curtailment, distinct from clipping · a hard outage, then watch `make queues` |
 | `make step KW=300` · `make microgrid-status` · `make clock-skew SITE=rural SECONDS=240` | a load step on the island, the grid former's response, and a device clock pushed out at runtime (D42) |
-| `make session SITE=metro EVSE=EVSE07` · `make exemplar` · `make clean` | one bay's transaction · ask for exemplars, get `[]` · stop and delete everything, including buffered telemetry |
+| `make session SITE=metro EVSE=EVSE07` · `make exemplar` | one bay's transaction · ask for exemplars, get `[]` |
+| `make slo` · `make demo` | the four SLOs with targets · the whole story, ending in a verdict |
+| `make clean` | stop and delete everything, including buffered telemetry |
 
 The rest is in the [`Makefile`](Makefile); the measurement harnesses (`outage-measure.sh`,
 `microgrid-step-measure.sh`, `clock-inversion.sh`, `shot.js`) are in `tools/`.
