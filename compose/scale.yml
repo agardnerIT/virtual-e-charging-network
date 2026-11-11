@@ -1,0 +1,115 @@
+# A scale-out overlay, for measuring the marginal cost of a site (#18)
+#
+#   docker compose -f compose/docker-compose.yml -f compose/scale.yml up -d
+#   make stats            # the number to record
+#   docker compose -f compose/docker-compose.yml -f compose/scale.yml down
+#
+# It adds two *whole sites* — device, poller, edge collector — using the same image and the same
+# edge config as the five real ones, because the question in #18 is "what does a seventh site
+# cost?", and the honest way to answer it is to add two and measure.
+#
+# Two deliberate differences from a real site, both stated so the number is not overclaimed:
+#   * the extra edges send straight to the hub on the `noc` network instead of through a toxiproxy
+#     proxy. The link is a shared container (8 MiB, one for all sites), so leaving it out changes
+#     the marginal cost by nothing; it does mean these sites are not *impaired*.
+#   * there is no charge point and no CSMS, so the marginal cost measured is a *telemetry* site:
+#     three containers. The depot shows what a charge point pair adds (34 + 35 MiB, docs/sizing.md).
+
+services:
+  edge-scale1:
+    image: otel/opentelemetry-collector-contrib:0.130.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    user: "0:0"
+    environment:
+      SITE_ID: scale-one
+      SITE_NAME: Scale Test One
+      SITE_KIND: charging_site
+      SITE_LAT: "-34.0000"
+      SITE_LON: "142.0000"
+      HUB_ENDPOINT: hub:4317
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+    networks: [ot-scale1, noc]
+
+  device-scale1:
+    build: { context: ../sim }
+    restart: unless-stopped
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_ID: meter-scale1-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_PORT: "5020"
+      DEVICE_CLOCK_SKEW_S: "-3"
+      NOMINAL_VOLTAGE: "230"
+      ENERGY_BASE_KWH: "1000"
+      WORD_ORDER: low
+    networks: [ot-scale1]
+
+  poller-scale1:
+    build: { context: ../sim }
+    restart: unless-stopped
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_ID: meter-scale1-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_HOST: device-scale1
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-scale1:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "230"
+    depends_on: [device-scale1, edge-scale1]
+    networks: [ot-scale1]
+
+  edge-scale2:
+    image: otel/opentelemetry-collector-contrib:0.130.0
+    restart: unless-stopped
+    command: ["--config=/etc/otel/config.yaml"]
+    user: "0:0"
+    environment:
+      SITE_ID: scale-two
+      SITE_NAME: Scale Test Two
+      SITE_KIND: charging_site
+      SITE_LAT: "-34.1000"
+      SITE_LON: "142.1000"
+      HUB_ENDPOINT: hub:4317
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+    networks: [ot-scale2, noc]
+
+  device-scale2:
+    build: { context: ../sim }
+    restart: unless-stopped
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_ID: meter-scale2-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_PORT: "5020"
+      DEVICE_CLOCK_SKEW_S: "-5"
+      NOMINAL_VOLTAGE: "230"
+      ENERGY_BASE_KWH: "2000"
+      WORD_ORDER: low
+    networks: [ot-scale2]
+
+  poller-scale2:
+    build: { context: ../sim }
+    restart: unless-stopped
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_ID: meter-scale2-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_HOST: device-scale2
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-scale2:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "230"
+    depends_on: [device-scale2, edge-scale2]
+    networks: [ot-scale2]
+
+networks:
+  ot-scale1: {}
+  ot-scale2: {}

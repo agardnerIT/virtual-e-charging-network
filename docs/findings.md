@@ -288,3 +288,11 @@ code or config.
     here: `SOLAR_CLOCK_HOUR` pins the curve for a demo, and the honest fix is a `TZ`/longitude-aware
     solar position, which is a modelling change, not a bug fix. Recorded so the next person does
     not "discover" it and think the pipeline is lying.
+
+56. **`docker compose -f base.yml -f overlay.yml down` takes down the base stack too.** An overlay
+    adds services; `down` on the merged project stops *everything*, and it removes the shared
+    networks while it is at it — which killed an in-flight two-hour outage measurement mid-run and
+    restarted every container in the base stack. To remove only what an overlay added:
+    `docker compose -f ... -f overlay.yml rm -sf <the overlay's services>`
+    (`--remove-orphans` is the other trap: with an overlay it will happily remove the *base*
+    project's orphaned containers).

@@ -228,6 +228,46 @@ pipeline. Reproduce with `make up VISUAL_PHASES=drop` and the two queries above.
 
 ---
 
+## The marginal cost of a site, measured by adding two (M4, #18)
+
+The headline number in this file is a *whole stack*, which is the wrong unit for anyone planning a
+deployment: the question is what a **seventh site** costs. Multiplied estimates are not measurements,
+so `compose/scale.yml` adds two whole sites — device, poller and edge collector each, same image,
+same edge config — and `make stats` before and after gives the marginal cost directly.
+
+| | containers | `docker stats` |
+|---|---|---|
+| five real sites + the visual stack + the market feed | 25 | 1 132.6 MiB |
+| the same, plus two synthetic sites | 31 | 1 326.8 MiB |
+| **marginal cost of one site** | **3** | **97.1 MiB** |
+
+The two new sites on their own:
+
+| Component | fresh process |
+|---|---|
+| device (SunSpec meter, 118 registers) | 21.0 MiB |
+| poller (1 Hz scan, 5 s export) | 31.8 MiB |
+| edge collector (disk queue, three pipelines) | 45.3 MiB |
+| **one site** | **~98 MiB** |
+
+**What that means for seven sites:** 1 133 MiB for today's five plus 2 × 97 = **~1 327 MiB**, which is
+exactly what the measurement says, and it leaves ~1.7 GB of D10's 3 GB for a real backend and a real
+log store. A site is ~100 MiB; the hub, the stores and the visual stack are ~560 MiB and do not scale
+with sites.
+
+**What the two synthetic sites are not**, stated so the number is not overclaimed (the overlay's own
+header says this too): they send straight to the hub rather than through a toxiproxy proxy (the link
+is one shared 8 MiB container, so the marginal cost is nil either way), and they have no charge point
+and no CSMS. A site with a 12-bay OCPP pair adds the depot's numbers: 34 + 35 MiB, which is the same
+order — the Python interpreter, not the work.
+
+**And a warning that this file already half-contained:** `poller-metro` measured **103.6 MiB** in the
+same `make stats` that caught a fresh poller at 31.8 MiB. Same code, same image, different age. That
+drift is #17's subject; until it is explained, treat "a poller is 32 MiB" as "a *new* poller is
+32 MiB".
+
+---
+
 ## Loki, measured — the log store this stack does not ship (D45)
 
 The default stack has no log store. That is a decision, and the usual justification for one —
