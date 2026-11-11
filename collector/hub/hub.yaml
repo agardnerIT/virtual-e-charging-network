@@ -60,6 +60,35 @@ processors:
           - set(attributes["geo.latitude"],       resource.attributes["geo.latitude"])
           - set(attributes["geo.longitude"],      resource.attributes["geo.longitude"])
 
+  # ---------------------------------------------------------------------------------
+  # PER-PHASE CARDINALITY CONTROL (M4, #11). One lever, off by default, and it exists only on
+  # the visual path.
+  #
+  # The problem: every per-phase point is a separate series in any attribute-flattening store.
+  # Measured on this stack: 144 of 434 `energy_*` series carry `energy.phase` (three per
+  # per-phase metric), which is a third of the estate for a view that usually wants the
+  # average. The depot shows why it matters — twelve bays x three phases x six EVSE metrics is
+  # where cardinality stops being a rounding error.
+  #
+  # The control: drop the phase-labelled data points on the *visual* path, keeping the
+  # aggregate the device already publishes under the same metric name (a SunSpec meter reports
+  # `V` as well as `VphA/B/C`). That is a real reduction with no invented semantics - no
+  # averaging is done here, because averaging in the collector would be a number this repo
+  # cannot defend. The backend-of-record pipeline is untouched, so per-phase is always
+  # available to a real backend.
+  #
+  #   make up VISUAL_PHASES=drop     # dashboard/visual store: aggregate only
+  #   make up                        # default: keep everything (nothing changes)
+  #
+  # What it does NOT do: no cardinality estimation, no per-tenant policy, no aggregation. If
+  # you need the mean of three phases, the device already publishes it.
+  # ---------------------------------------------------------------------------------
+  filter/visual_phases:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'attributes["energy.phase"] != nil and "${env:VISUAL_PHASES}" == "drop"'
+
 exporters:
   debug:
     verbosity: normal
@@ -121,7 +150,7 @@ service:
       # The local proof of life (D3). Same receiver feeding a second pipeline is deliberate
       # and supported: it is how one stream gets shed for one backend and not the other.
       receivers: [otlp]
-      processors: [transform/visual, batch]
+      processors: [transform/visual, filter/visual_phases, batch]
       exporters: [otlphttp/metrics]
     logs:
       # No log store in the chosen visual stack yet - neither candidate ships one without

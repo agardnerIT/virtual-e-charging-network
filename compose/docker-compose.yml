@@ -93,6 +93,10 @@ services:
       # adding a second one, is a change to these two lines and nothing else (D2, D15).
       # Neither endpoint receives anything scraped from a simulator: this is the pipeline's
       # own output, one hop downstream of the impaired link.
+      # Per-phase cardinality control (M4, #11): `keep` (default) sends every per-phase data
+      # point to the visual store, `drop` sends only the aggregate. The backend-of-record
+      # pipeline is untouched either way.  make up VISUAL_PHASES=drop
+      VISUAL_PHASES: "${VISUAL_PHASES:-keep}"
       VISUAL_METRICS_ENDPOINT: "http://prometheus:9090/api/v1/otlp"
       VISUAL_TRACES_ENDPOINT: "jaeger:4317"
     volumes:

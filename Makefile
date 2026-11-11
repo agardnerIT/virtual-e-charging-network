@@ -30,16 +30,35 @@ TOXIPROXY ?= http://localhost:8474
 HMI_PORT ?= 8091
 JAEGER_PORT ?= 16687
 
+# Per-phase cardinality control for the visual store (M4, #11). Empty means "keep", which is
+# the default and changes nothing:  make up VISUAL_PHASES=drop
+VISUAL_PHASES ?=
+
 # Force the solar simulator to a daytime hour for a demo that has to run at night. Empty by
 # default, which means real local time and an honest irradiance curve.
 SOLAR_CLOCK_HOUR ?=
 
-.PHONY: up down ps logs stats queues link fault fault-status profiles clean queue-detail \
+.PHONY: up up-debug assert-traffic down ps logs stats queues link fault fault-status profiles clean queue-detail \
 	device-logs poller-logs visual prom hmi curtail step microgrid-status clock-skew clock-reset \
 	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
+# STACK=debug is the OT half of the stack with no visual layer: no Prometheus, no Jaeger, no
+# HMI (M4, #20). For CI and for debugging the OT side without a browser, and it ends in an
+# assertion rather than a log tail.
+STACK ?= full
+
+# The services the OT story needs, listed rather than inferred: a new site must be added here
+# or it is silently missing from the debug stack.
+OT_SERVICES = toxiproxy device-rural poller-rural device-solar poller-solar device-wind \
+	poller-wind device-metro poller-metro device-microgrid poller-microgrid \
+	edge-rural edge-solar edge-wind edge-metro edge-microgrid csms ocpp-cp hub ops
+
 up:
-	SOLAR_CLOCK_HOUR=$(SOLAR_CLOCK_HOUR) HMI_PORT=$(HMI_PORT) JAEGER_PORT=$(JAEGER_PORT) $(COMPOSE) up -d
+ifeq ($(STACK),debug)
+	$(MAKE) --no-print-directory up-debug
+else
+	SOLAR_CLOCK_HOUR=$(SOLAR_CLOCK_HOUR) HMI_PORT=$(HMI_PORT) JAEGER_PORT=$(JAEGER_PORT) \
+	  VISUAL_PHASES=$(if $(VISUAL_PHASES),$(VISUAL_PHASES),keep) $(COMPOSE) up -d
 	@echo
 	@echo "waiting for the first telemetry to cross the impaired link..."
 	@sleep 6
@@ -50,6 +69,33 @@ up:
 	@echo
 	@echo "open the map:  http://127.0.0.1:$(HMI_PORT)"
 	@echo "             (make up STACK=debug for collectors only, no local stack)"
+endif
+
+# The collectors-only stack. The hub's `debug` exporter is the only sink, which is what a CI
+# runner and an OT debugging session both want.
+up-debug:
+	SOLAR_CLOCK_HOUR=$(SOLAR_CLOCK_HOUR) $(COMPOSE) up -d $(OT_SERVICES)
+	@$(MAKE) --no-print-directory link SITE=metro PROFILE=wet
+	@$(MAKE) --no-print-directory assert-traffic
+
+# A bounded, machine-checkable assertion: metric points AND at least one span must have crossed
+# the impaired links and arrived at the hub. Non-zero exit if not — that is the point of the
+# target. (The loop pauses via the shell's sleep, which is fine: the budget is fixed.)
+ASSERT_TIMEOUT_S ?= 45
+assert-traffic:
+	@printf 'asserting telemetry reaches the hub within %ss...\n' "$(ASSERT_TIMEOUT_S)"
+	@$(COMPOSE) exec -T ops sh -c '\
+	  deadline=$$(( $$(date +%s) + $(ASSERT_TIMEOUT_S) )); \
+	  while [ $$(date +%s) -lt $$deadline ]; do \
+	    m=$$(wget -qO- http://hub:8889/metrics 2>/dev/null | awk "/^otelcol_receiver_accepted_metric_points/ {s+=\$$NF} END {print s+0}"); \
+	    s=$$(wget -qO- http://hub:8889/metrics 2>/dev/null | awk "/^otelcol_receiver_accepted_spans/ {s+=\$$NF} END {print s+0}"); \
+	    if [ "$$m" -gt 0 ] && [ "$$s" -gt 0 ]; then \
+	      printf "ok: hub accepted %s metric points and %s spans\n" "$$m" "$$s"; exit 0; \
+	    fi; \
+	    sleep 2; \
+	  done; \
+	  printf "FAIL: nothing at the hub after %ss (points=%s spans=%s)\n" "$(ASSERT_TIMEOUT_S)" "$$m" "$$s" >&2; \
+	  exit 1'
 
 down:
 	$(COMPOSE) down
