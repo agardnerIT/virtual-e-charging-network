@@ -284,10 +284,20 @@ class OcppClient:
                     fut.set_result(action_or_payload or {})
             return
 
-        # A CALL from the CSMS. This test double receives none, but a CP that cannot answer
-        # one is not a CP; refuse it in protocol rather than dropping the frame silently.
+        # A CALL from the CSMS. SetChargingProfile is implemented (M4, #12); everything else is
+        # refused in protocol rather than dropped silently.
         action, call_payload = action_or_payload, payload or {}
         self._log_frame("recv", action, unique_id, call_payload)
+        if action == "SetChargingProfile":
+            reply = self.cp.profiles.apply(call_payload)
+            self._log_frame("send", action, unique_id, reply)
+            await self._conn.send(ocpp16.result(unique_id, reply))
+            return
+        if action == "ClearChargingProfile":
+            reply = self.cp.profiles.clear()
+            self._log_frame("send", action, unique_id, reply)
+            await self._conn.send(ocpp16.result(unique_id, reply))
+            return
         self._log_frame("send", f"CALLERROR {action}", unique_id, {"error": "NotSupported"})
         await self._conn.send(ocpp16.error(unique_id, "NotSupported",
                                            f"{action} not supported by this charge point"))
@@ -336,6 +346,11 @@ class EvseSample:
     state: str = "Available"
     power_w: float = 0.0
     offered_a: float = 0.0
+    #: What load management allowed (M4, #12). Equal to `offered_a` when no cap is set.
+    allowed_a: float = 0.0
+    #: Why the offer is below what the vehicle asked for: "voltage" (the sag derate) or
+    #: "load_management" (the site cap). Bounded vocabulary, so it is a safe attribute.
+    throttled_by: str | None = None
     session_kwh: float = 0.0
     voltages: tuple[float, float, float] = (V_NOMINAL, V_NOMINAL, V_NOMINAL)
     supply_quality: str = "comms-lost"
@@ -378,6 +393,80 @@ class Evse:
 # --------------------------------------------------------------------------------------
 # Metrics
 # --------------------------------------------------------------------------------------
+class ChargingProfiles:
+    """The charging profiles a CSMS has pushed, and what they mean for this site (M4, #12).
+
+    OCPP 1.6 `SetChargingProfile` is the protocol-real way to cap a site, and `ChargePointMaxProfile`
+    (connector 0) is the profile purpose that *means* a site cap: a limit on the whole charge point,
+    not on one connector. This class holds the last one and turns it into an amperage budget.
+
+    What is implemented: `chargingRateUnit: A` with a single `chargingSchedulePeriod` (the common
+    case, and the one a load-management layer actually sends). What is not: `W` units, multiple
+    periods (`startPeriod` scheduling), `Recurring`/`Relative` kinds, stack levels beyond
+    "last one wins", and `TxProfile`/`TxDefaultProfile` per-connector limits. `docs/standards.md` §6
+    lists exactly this.
+    """
+
+    def __init__(self) -> None:
+        self.lock = threading.Lock()
+        self.site_cap_a: float | None = None
+        self.profile_id: int | None = None
+        self.applied_at: float | None = None
+
+    def apply(self, payload: dict) -> dict:
+        profile = payload.get("csChargingProfiles") or {}
+        purpose = profile.get("chargingProfilePurpose")
+        schedule = profile.get("chargingSchedule") or {}
+        unit = schedule.get("chargingRateUnit", "A")
+        periods = schedule.get("chargingSchedulePeriod") or []
+        limit = float((periods[0] or {}).get("limit", 0.0)) if periods else 0.0
+        connector = payload.get("connectorId", 0)
+        if purpose != "ChargePointMaxProfile" or connector not in (0, None):
+            # Honest refusal rather than a silent partial implementation: a per-connector profile
+            # that this CP quietly applied site-wide would be worse than not applying it.
+            return {"status": "Rejected",
+                    "reason": f"only ChargePointMaxProfile is implemented (got {purpose})"}
+        if unit != "A":
+            return {"status": "Rejected", "reason": f"only chargingRateUnit=A is implemented (got {unit})"}
+        with self.lock:
+            self.site_cap_a = max(0.0, limit)
+            self.profile_id = profile.get("chargingProfileId")
+            self.applied_at = time.time()
+        LOG.warning("CHARGE POINT MAX PROFILE: site capped at %.1f A (%.1f kW at 230 V/phase)",
+                    limit, limit * 3 * V_NOMINAL / 1000.0)
+        return {"status": "Accepted"}
+
+    def clear(self) -> dict:
+        with self.lock:
+            self.site_cap_a = None
+            self.profile_id = None
+            self.applied_at = None
+        return {"status": "Accepted"}
+
+    def snapshot(self) -> dict:
+        with self.lock:
+            return {
+                "site_cap_a": self.site_cap_a,
+                "site_cap_kw": round(self.site_cap_a * 3 * V_NOMINAL / 1000.0, 1)
+                if self.site_cap_a is not None else None,
+                "charging_profile_id": self.profile_id,
+                "applied_at": self.applied_at,
+            }
+
+    def share_for(self, active_bays: int, wanted_a: float) -> float:
+        """The current this bay may offer, given the site cap and how many bays are live.
+
+        Equal share, which is what a simple load-management layer does and what an operator would
+        expect before anybody configures priorities. It is a *cap*, never a lift: a bay that wants
+        less than its share keeps wanting less.
+        """
+        with self.lock:
+            cap = self.site_cap_a
+        if cap is None:
+            return wanted_a
+        return min(wanted_a, cap / max(1, active_bays))
+
+
 class Metrics:
     """The four numbers that make a session visible, each on an EVSE.
 
@@ -389,9 +478,11 @@ class Metrics:
     series per session, which is honest.
     """
 
-    def __init__(self, meter, evses: list[Evse], monitor: "SupplyMonitor") -> None:
+    def __init__(self, meter, evses: list["Evse"], monitor: "SupplyMonitor",
+                 profiles: "ChargingProfiles") -> None:
         self.evses = evses
         self.monitor = monitor
+        self.profiles = profiles
         self.power = meter.create_observable_gauge(
             "energy.evse.power.real", callbacks=[self._power], unit="W",
             description="Real power delivered by one EVSE. Zero when the EVSE is not charging.",
@@ -433,6 +524,17 @@ class Metrics:
             description="Energy actually delivered. The pair with .requested is the delivered-"
                         "vs-requested SLO: a derate or a sag shows up as a ratio below 1.",
         )
+        # --- load management (M4, #12)
+        self.capacity = meter.create_observable_gauge(
+            "energy.site.capacity.current", callbacks=[self._site_cap], unit="A",
+            description="Site capacity cap pushed by the CSMS as an OCPP ChargePointMaxProfile. "
+                        "Absent when no profile is set, which is the default.",
+        )
+        self.site_load = meter.create_observable_gauge(
+            "energy.site.load.power", callbacks=[self._site_load], unit="W",
+            description="Sum of what the bays are delivering. Divide by the cap to see how close "
+                        "load management is to binding.",
+        )
         self.pq_affected = meter.create_counter(
             "energy.session.power_quality_affected", unit="1",
             description="Sessions in which the supply-voltage derate engaged at least once. "
@@ -441,11 +543,23 @@ class Metrics:
 
     @staticmethod
     def _attrs(s: EvseSample) -> dict:
-        return {
+        attrs = {
             "energy.evse.id": s.evse_id,
             "energy.connector.id": s.connector_id,
             "energy.quality": s.supply_quality,
         }
+        if s.throttled_by:
+            attrs["energy.evse.throttled_by"] = s.throttled_by
+        return attrs
+
+    def _site_cap(self, _options):
+        cap = self.profiles.snapshot()["site_cap_a"]
+        if cap is None:
+            return []
+        return [Observation(cap)]
+
+    def _site_load(self, _options):
+        return [Observation(sum(s.power_w for s in self._samples()))]
 
     def _power(self, _options):
         return [Observation(s.power_w, self._attrs(s), s.context) for s in self._samples()]
@@ -523,7 +637,9 @@ class ChargePoint:
         })
         self.tracer = self.telemetry.tracer("vecn.ocpp-cp")
         self.monitor = SupplyMonitor()
-        self.metrics = Metrics(self.telemetry.meter("vecn.ocpp-cp"), self.evses, self.monitor)
+        self.profiles = ChargingProfiles()
+        self.metrics = Metrics(self.telemetry.meter("vecn.ocpp-cp"), self.evses, self.monitor,
+                               self.profiles)
         self.client = OcppClient(self)
         self.loop: asyncio.AbstractEventLoop | None = None
         # One bay at the rural site (unchanged default); the depot names every bay, so all
@@ -710,6 +826,15 @@ class ChargePoint:
                     pu = min(voltages) / V_NOMINAL
                     offered = self.vehicle_max_a * _clamp(
                         (pu - DERATE_ZERO_PU) / (DERATE_FULL_PU - DERATE_ZERO_PU))
+                    # Load management (M4, #12): the site cap is shared equally between the bays
+                    # that are actually charging, and it can only ever lower the offer.
+                    active_bays = sum(1 for e in self.evses if e.busy)
+                    uncapped = offered
+                    offered = self.profiles.share_for(active_bays, offered)
+                    sample.throttled_by = (
+                        "load_management" if offered < uncapped - 0.05
+                        else ("voltage" if uncapped < self.vehicle_max_a - 0.05 else None))
+                    sample.allowed_a = round(offered, 1)
                     offered = round(offered, 1)
 
                     # The sag is a span in the session, not an event: it has a start, a
@@ -916,6 +1041,7 @@ class ChargePoint:
             "status": "ok",
             "chargePointId": self.client.cp_id,
             "connected": self.client._connected.is_set(),
+            "chargingProfile": self.profiles.snapshot(),
             "supply": {
                 "voltageV": [round(x, 1) for x in v],
                 "pu": round(min(v) / V_NOMINAL, 3),

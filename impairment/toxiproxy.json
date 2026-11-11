@@ -28,5 +28,11 @@
     "listen": "0.0.0.0:14321",
     "upstream": "hub:4317",
     "enabled": true
+  },
+  {
+    "name": "highway-wan",
+    "listen": "0.0.0.0:14322",
+    "upstream": "hub:4317",
+    "enabled": true
   }
 ]

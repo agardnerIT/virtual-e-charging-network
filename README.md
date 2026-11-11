@@ -42,7 +42,7 @@ order by receive time (D42, [`docs/ot-primer.md`](docs/ot-primer.md#51-the-clock
 
 ```bash
 make up                          # the whole stack; ends at http://127.0.0.1:8091
-make queues                      # five edges, all zero: the links are clean
+make queues                      # six edges, all zero: the links are clean
 make spine                       # sag -> derate -> failed session, in one command
 make session-status SITE=metro   # twelve bays: supply voltage, state, kW, offered A, tx
 ```
@@ -54,9 +54,9 @@ SOLAR_CLOCK_HOUR=12` pins the solar farm to daytime.
 
 ## What is running
 
-Five sites, one image, one poller, one edge config; they differ by environment and scale (D10, D37).
-Every sort of site is here: a load on a weak feeder, two generators, a twelve-bay depot, and an island
-that makes its own frequency.
+Six sites, one image, one poller, one edge config; they differ by environment and scale (D10, D37).
+Every sort of site is here: a load on a weak feeder, two generators, a twelve-bay depot, a highway hub
+with more demand than supply, and an island that makes its own frequency.
 
 | Site | Regime | `energy.site.kind` | Devices | Link | Bays |
 |---|---|---|---|---|---|
@@ -64,12 +64,13 @@ that makes its own frequency.
 | `solar-mildura` | generation | `solar_farm` | SunSpec 103 inverter, 2 MPPT (maximum-power-point) trackers, irradiance/temperature | impaired | — |
 | `wind-snowtown` | generation | `wind_farm` | 6 turbines + a farm connection point | impaired | — |
 | `metro-tottenham` | load, depot | `charging_site` | SunSpec meter + a 12-bay charge point | 12 ms fibre | 12 |
+| `highway-hume` | load, hub | `charging_site` | SunSpec meter + a 6-bay charge point under a 100 kW site cap pushed as an OCPP profile | impaired | 6 |
 | `microgrid-kangaroo-island` | island | `microgrid` | Solar + one turbine + a grid-forming battery; no feeder, so frequency is set on site | impaired | — |
 
 The kind splits *regime*, not size: the rural site and the depot are both `charging_site`. Plain words per site,
-and which families live where: [`docs/telemetry.md` §1](docs/telemetry.md#1-the-sites-spelled-out). Five impaired
+and which families live where: [`docs/telemetry.md` §1](docs/telemetry.md#1-the-sites-spelled-out). Six impaired
 links; the visual layer is Prometheus + Jaeger + our own map and mimic, fed only from the pipeline. Measured:
-24 containers, 1 048 MiB ([`docs/sizing.md`](docs/sizing.md)).
+27 containers, ~1.2 GiB ([`docs/sizing.md`](docs/sizing.md)).
 
 ## What the stack emits, before you run it
 
@@ -118,9 +119,9 @@ equation with droop control on the island, the charger's linear derate. **Not do
 OPC UA, real protection, real settlement, a power-flow model, OCPP conformance. Per-device fidelity, with
 the source of every number: [`docs/standards.md`](docs/standards.md).
 
-**Measured:** 1 048 MiB for 24 containers against a 3 GB budget; six series per bay — 87 `energy_evse.*` across
-the two charging sites, 74 of them the depot's twelve; 27 on the island, whose four source metrics carry
-solar and wind as a dimension, not as two names (D40, [`docs/sizing.md`](docs/sizing.md)).
+**Measured:** ~1.2 GiB for 27 containers against a 3 GB budget; six series per bay across three charging sites;
+27 series on the island, whose four source metrics carry solar and wind as a dimension, not as two names
+(D40, [`docs/sizing.md`](docs/sizing.md)).
 
 **One measured limitation that simplification must not lose:** the metric-exemplar leg from the sag's
 data point to its session trace is wired end to end and Prometheus' OTLP receiver drops the exemplar —
@@ -133,15 +134,15 @@ empty answer; the join that works today is `ocpp.transaction.id` (D33).
 |---|---|
 | `make logs` · `make stats` · `make ps` | follow the hub · CPU/RAM of the stack · what is running |
 | `make prom Q='count by (__name__) ({__name__=~"energy.*"})'` | PromQL through the `ops` box; Prometheus has no host port |
-| `make fault SITE=rural FAULT=voltage-sag ARGS="--depth 0.6 --duration 30"` | inject the one fault this repo models; `FAULT=clear` clears it |
-| `make curtail SITE=solar PCT=60` · `make link SITE=wind PROFILE=down` | operator curtailment, distinct from clipping · a hard outage, then watch `make queues` |
+| `make fault SITE=rural FAULT=voltage-sag ARGS="--depth 0.6 --duration 30"` · `make curtail SITE=solar PCT=60` | inject the one fault this repo models · operator curtailment, distinct from clipping |
+| `make link SITE=wind PROFILE=down` · `make queues` | a hard outage on one link, and the disk queue filling then draining |
 | `make step KW=300` · `make microgrid-status` · `make clock-skew SITE=rural SECONDS=240` | a load step on the island, the grid former's response, and a device clock pushed out at runtime (D42) |
+| `make cap KW=100` · `make cap-clear` | cap the highway hub at 100 kW as an OCPP profile; watch six bays share it |
 | `make session SITE=metro EVSE=EVSE07` · `make exemplar` | one bay's transaction · ask for exemplars, get `[]` |
-| `make slo` · `make demo` | the four SLOs with targets · the whole story, ending in a verdict |
-| `make clean` | stop and delete everything, including buffered telemetry |
+| `make slo` · `make demo` · `make clean` | the four SLOs with targets · the whole story, ending in a verdict · stop and delete everything |
 
-The rest is in the [`Makefile`](Makefile); the measurement harnesses (`outage-measure.sh`,
-`microgrid-step-measure.sh`, `clock-inversion.sh`, `shot.js`) are in `tools/`.
+The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `microgrid-step-measure.sh`,
+`clock-inversion.sh`, `demo.sh`, `shot.js`) are in `tools/`.
 
 ## Docs map
 
@@ -149,7 +150,7 @@ The rest is in the [`Makefile`](Makefile); the measurement harnesses (`outage-me
 |---|---|
 | [`docs/telemetry.md`](docs/telemetry.md) | **start here if you just cloned it**: five sites, every metric and its split keys, traces, logs, pointing it at your backend |
 | [`plan.md`](plan.md) · [issues](https://github.com/agardnerIT/virtual-e-charging-network/issues) | decisions D1–D43 (source of truth) · the work, in milestones |
-| [`docs/sites/`](docs/sites) | [`rural`](docs/sites/rural.md) scaling, deadband, the sag · [`generation`](docs/sites/generation.md) clipping, cube law · [`metro`](docs/sites/metro.md) twelve bays · [`microgrid`](docs/sites/microgrid.md) why frequency moves |
+| [`docs/sites/`](docs/sites) | [`rural`](docs/sites/rural.md) scaling, deadband, the sag · [`generation`](docs/sites/generation.md) clipping, cube law · [`metro`](docs/sites/metro.md) twelve bays · [`highway`](docs/sites/highway.md) load management · [`microgrid`](docs/sites/microgrid.md) why frequency moves |
 | [`docs/ot-primer.md`](docs/ot-primer.md) · [`docs/standards.md`](docs/standards.md) | the electrical side for IT people, including the clock problem · which spec each device claims, and how faithfully |
 | [`docs/sizing.md`](docs/sizing.md) · [`docs/findings.md`](docs/findings.md) · [`docs/hmi.md`](docs/hmi.md) | measured RAM/disk/cardinality · the things that cost an hour · the map and the mimic |
 | [`docs/upstream/`](docs/upstream/ot-quality-attribute.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) | the prepared upstream proposal (data-point validity) · conventions, the file tree, the checklist |

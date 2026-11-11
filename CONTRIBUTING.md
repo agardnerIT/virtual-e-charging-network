@@ -10,7 +10,7 @@ the rules that keep it coherent. They are short on purpose.
 | **OTel-native, no exceptions** | D15 | No ActiveGate, no OneAgent, no vendor agent. The collectors *are* the agents. Every backend is reached over OTLP only. |
 | **Two collector layers, and only two** | D16 | One edge collector per site, one hub. Do not add a tier. |
 | **arm64 only** | D10 | Must run on Apple Silicon. Verify any new image actually runs arm64. |
-| **≤3 GB RAM total** | D10 | Currently ~1.0 GiB for 24 containers (five sites). Measure, then update `docs/sizing.md`. |
+| **≤3 GB RAM total** | D10 | Currently ~1.2 GiB for 27 containers (six sites). Measure, then update `docs/sizing.md`. |
 | **Docker Compose only** | D13 | No Kubernetes. |
 | **Clean energy only** | D17 | No diesel, no thermal, no nuclear generation. |
 | **One southbound protocol** | D4 | Modbus (SunSpec-shaped). Do not add DNP3, IEC 104, 61850, DLMS or OPC UA. |
@@ -53,7 +53,7 @@ issue number or it is deleted.
 
 1. `make up` ends in a picture at <http://127.0.0.1:8091> — and every site's mimic renders
    (2 bay cells at the rural site, 12 at the depot).
-2. `make queues` → five edges at 0.
+2. `make queues` → six edges at 0.
 3. The M1/M2 regressions still pass: `make fault SITE=rural FAULT=voltage-sag`, the deadband still
    suppresses steady registers, stopping `device-rural` turns quality to `comms-lost`, and
    `make spine` still ends in a `PowerLoss` transaction.

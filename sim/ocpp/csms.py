@@ -99,6 +99,9 @@ class CsmsState:
         self.lock = threading.Lock()
         #: Optional hook, set by the CSMS so a stop is counted where the meter is (SLOs, #13).
         self.on_stop = None
+        #: The last site profile pushed to each charge point, so a reconnect can be re-capped
+        #: (M4, #12). OCPP has no "read my profile" call, which is why the CSMS must remember.
+        self.profiles: dict[str, float] = {}
         self.transactions: dict[int, Transaction] = {}
         self.next_transaction_id = 1
         self.charge_points: dict[str, dict] = {}
@@ -183,6 +186,12 @@ class Csms:
     """The OCPP message handlers. One instance per process; state is shared across connections."""
 
     def __init__(self, state: CsmsState, telemetry) -> None:
+        # CSMS-initiated CALLs need two things a request/response double does not: the live
+        # connection per charge point, and a future per outstanding uniqueId (M4, #12).
+        self.connections: dict[str, object] = {}
+        self.pending: dict[str, "asyncio.Future[dict]"] = {}
+        self.loop: "asyncio.AbstractEventLoop | None" = None
+        self._unique = 0
         # The stop hook exists so the *state* object can stay a plain in-memory record while the
         # counting lives where the meter is (SLOs, #13).
         state.on_stop = self._count_stop
@@ -254,6 +263,60 @@ class Csms:
         else:
             LOG.info("OCPP %s %s", direction, action, extra=extra)
 
+    # -- CSMS-initiated calls (M4, #12) -------------------------------------------------
+    def _next_unique(self) -> str:
+        self._unique += 1
+        return f"csms-{self._unique}"
+
+    async def send_call(self, cp_id: str, action: str, payload: dict,
+                        timeout_s: float = 5.0) -> dict:
+        """Send a CALL to a charge point and await its CALLRESULT.
+
+        This is the half of OCPP 1.6 that a passive test double never needs and a real CSMS cannot
+        live without: profiles, reservations and remote starts are all CSMS-initiated. Frames are
+        logged in both directions with `ocpp.message.direction`, so the conversation is traceable
+        in the same places as everything else.
+        """
+        conn = self.connections.get(cp_id)
+        if conn is None:
+            raise RuntimeError(f"charge point {cp_id} is not connected")
+        unique_id = self._next_unique()
+        fut: asyncio.Future[dict] = self.loop.create_future()  # type: ignore[union-attr]
+        self.pending[unique_id] = fut
+        self._log_frame("send", action, unique_id, payload, cp_id, None)
+        await conn.send(ocpp16.call(unique_id, action, payload))  # type: ignore[attr-defined]
+        try:
+            reply = await asyncio.wait_for(fut, timeout=timeout_s)
+        finally:
+            self.pending.pop(unique_id, None)
+        self._log_frame("recv", f"CALLRESULT {action}", unique_id, reply, cp_id, None)
+        return reply
+
+    async def set_site_cap(self, cp_id: str, limit_a: float, profile_id: int = 1) -> dict:
+        """Push a `ChargePointMaxProfile`: a cap on the whole charge point, which is what a site
+        capacity limit is in OCPP 1.6 terms."""
+        payload = {
+            "connectorId": 0,
+            "csChargingProfiles": {
+                "chargingProfileId": profile_id,
+                "stackLevel": 0,
+                "chargingProfilePurpose": "ChargePointMaxProfile",
+                "chargingProfileKind": "Absolute",
+                "chargingSchedule": {
+                    "chargingRateUnit": "A",
+                    "chargingSchedulePeriod": [{"startPeriod": 0, "limit": round(limit_a, 1)}],
+                },
+            },
+        }
+        self.state.profiles[cp_id] = limit_a
+        return await self.send_call(cp_id, "SetChargingProfile", payload)
+
+    async def clear_site_cap(self, cp_id: str) -> dict:
+        self.state.profiles.pop(cp_id, None)
+        return await self.send_call(cp_id, "ClearChargingProfile",
+                                    {"id": 1, "connectorId": 0,
+                                     "chargingProfilePurpose": "ChargePointMaxProfile"})
+
     # -- handlers ----------------------------------------------------------------------
     def _authorize(self, cp_id: str, payload: dict) -> dict:
         id_tag = payload.get("idTag", "")
@@ -266,11 +329,25 @@ class Csms:
 
     def _boot(self, cp_id: str, payload: dict) -> dict:
         self.state.on_boot(cp_id, payload)
+        # A charge point that reconnects has no memory of a profile (ours keeps it in memory, but
+        # a real one may have rebooted), and OCPP has no "get my profile". So the CSMS pushes it
+        # again — after this response, because sending a CALL inside a handler would deadlock on
+        # the same socket.
+        if cp_id in self.state.profiles and self.loop is not None:
+            self.loop.create_task(self._repush(cp_id, self.state.profiles[cp_id]))
         return {
             "status": "Accepted",
             "currentTime": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "interval": _envi("CSMS_HEARTBEAT_INTERVAL_S", 60),
         }
+
+    async def _repush(self, cp_id: str, limit_a: float) -> None:
+        await asyncio.sleep(1.0)          # let the BootNotification response land first
+        try:
+            await self.set_site_cap(cp_id, limit_a)
+            LOG.info("re-pushed the %.1f A site cap to %s after its boot", limit_a, cp_id)
+        except Exception as exc:  # noqa: BLE001 - a boot that races a disconnect is normal
+            LOG.warning("could not re-push the site cap to %s: %s", cp_id, exc)
 
     def _start(self, cp_id: str, payload: dict) -> dict:
         id_tag = payload.get("idTag", "")
@@ -331,12 +408,22 @@ async def _connection(conn: ServerConnection, csms: Csms) -> None:
         LOG.warning("connection from %s negotiated subprotocol %r, expected %r",
                     cp_id, conn.subprotocol, ocpp16.SUBPROTOCOL)
     LOG.info("charge point %s connected over %s", cp_id, conn.subprotocol)
+    csms.connections[cp_id] = conn
     try:
         async for message in conn:
             try:
                 mtype, unique_id, action_or_payload, payload = ocpp16.parse(message)
             except ocpp16.OCPPProtocolError as exc:
                 LOG.warning("unparseable frame from %s: %s", cp_id, exc)
+                continue
+            if mtype in (ocpp16.CALL_RESULT, ocpp16.CALL_ERROR):
+                # The reply to a CSMS-initiated CALL (SetChargingProfile, ClearChargingProfile).
+                fut = csms.pending.get(unique_id)
+                if fut is not None and not fut.done():
+                    if mtype == ocpp16.CALL_ERROR:
+                        fut.set_exception(RuntimeError(f"charge point refused: {payload}"))
+                    else:
+                        fut.set_result(action_or_payload or {})
                 continue
             if mtype != ocpp16.CALL:
                 continue
@@ -355,34 +442,86 @@ async def _connection(conn: ServerConnection, csms: Csms) -> None:
     except Exception:  # noqa: BLE001 - a dropped charge point is normal
         LOG.debug("connection for %s ended", cp_id, exc_info=True)
     finally:
+        csms.connections.pop(cp_id, None)
         LOG.info("charge point %s disconnected", cp_id)
 
 
-class _ControlHandler(BaseHTTPRequestHandler):
-    server_version = "vecn-csms/0.1"
+async def _http_control(state: "CsmsState", csms: "Csms", port: int) -> None:
+    """A minimal HTTP control endpoint, in the event loop.
 
-    def log_message(self, fmt, *args):
-        LOG.debug("http %s", fmt % args)
+    It was a `ThreadingHTTPServer` first, with `asyncio.run_coroutine_threadsafe` to reach the OCPP
+    connections. That deadlocked: the coroutine was submitted and never completed, so `make cap`
+    timed out while the CSMS looked perfectly healthy. One loop, one thread, no bridge — at the cost
+    of writing the request parsing by hand, which for five routes is not a cost.
+    """
 
-    def _send(self, code: int, payload: dict) -> None:
-        body = json.dumps(payload, indent=2).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        try:
+            request_line = await asyncio.wait_for(reader.readline(), timeout=5)
+            method, path, _ = (request_line.decode().split(" ") + ["", "", ""])[:3]
+            headers: dict[str, str] = {}
+            while True:
+                line = await asyncio.wait_for(reader.readline(), timeout=5)
+                if line in (b"\r\n", b"\n", b""):
+                    break
+                k, _, v = line.decode().partition(":")
+                headers[k.strip().lower()] = v.strip()
+            body = await asyncio.wait_for(
+                reader.readexactly(int(headers.get("content-length") or 0)), timeout=5) \
+                if int(headers.get("content-length") or 0) else b""
 
-    def do_GET(self):  # noqa: N802
-        state: CsmsState = self.server.state  # type: ignore[attr-defined]
-        if self.path == "/health":
-            snap = state.snapshot()
-            open_count = sum(1 for t in snap["transactions"] if t["open"])
-            self._send(200, {"status": "ok", "chargePoints": len(snap["chargePoints"]),
-                             "transactions": len(snap["transactions"]), "open": open_count})
-        elif self.path in ("/transactions", "/"):
-            self._send(200, state.snapshot())
-        else:
-            self._send(404, {"error": "not found"})
+            status, payload = 404, {"error": "not found"}
+            path = path.rstrip("/") or "/"
+            if method == "GET" and path == "/health":
+                snap = state.snapshot()
+                status, payload = 200, {
+                    "status": "ok", "chargePoints": len(snap["chargePoints"]),
+                    "transactions": len(snap["transactions"]),
+                    "open": sum(1 for t in snap["transactions"] if t["open"]),
+                }
+            elif method == "GET" and path in ("/transactions", "/"):
+                status, payload = 200, state.snapshot()
+            elif method == "GET" and path == "/profile":
+                status, payload = 200, {"connected": sorted(csms.connections),
+                                        "profiles": state.profiles}
+            elif method == "POST" and path == "/profile":
+                try:
+                    limit_a = float(json.loads(body or b"{}").get("limit_a"))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    status, payload = 400, {"error": "limit_a (amperes) is required"}
+                else:
+                    status, payload = 202, await _push_cap(csms, limit_a)
+            elif method == "DELETE" and path == "/profile":
+                status, payload = 202, await _push_cap(csms, None)
+            out = json.dumps(payload, indent=2).encode()
+            writer.write(b"HTTP/1.1 %d %s\r\nContent-Type: application/json\r\n"
+                         b"Content-Length: %d\r\nConnection: close\r\n\r\n"
+                         % (status, b"OK" if status < 300 else b"ERR", len(out)) + out)
+            await writer.drain()
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError):
+            pass
+        finally:
+            writer.close()
+
+    server = await asyncio.start_server(handle, "0.0.0.0", port)
+    LOG.info("control endpoint on http://0.0.0.0:%d (GET /health, GET|POST|DELETE /profile)", port)
+    async with server:
+        await server.serve_forever()
+
+
+async def _push_cap(csms: "Csms", limit_a: float | None) -> dict:
+    """Push (or clear) a site cap on every connected charge point."""
+    targets = sorted(csms.connections)
+    if not targets:
+        return {"accepted": False, "reason": "no charge point connected"}
+    results: dict[str, object] = {}
+    for cp_id in targets:
+        try:
+            results[cp_id] = (await csms.clear_site_cap(cp_id) if limit_a is None
+                              else await csms.set_site_cap(cp_id, limit_a))
+        except Exception as exc:  # noqa: BLE001 - report per CP, never crash the endpoint
+            results[cp_id] = {"error": f"{type(exc).__name__}: {exc}"}
+    return {"accepted": True, "limit_a": limit_a, "chargePoints": results}
 
 
 async def _amain() -> None:
@@ -398,12 +537,11 @@ async def _amain() -> None:
     state = CsmsState()
     csms = Csms(state, telemetry)
 
-    httpd = ThreadingHTTPServer(("0.0.0.0", _envi("HTTP_PORT", 9001)), _ControlHandler)
-    httpd.state = state  # type: ignore[attr-defined]
-    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    asyncio.create_task(_http_control(state, csms, _envi("HTTP_PORT", 9001)))
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
+    csms.loop = loop
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
             loop.add_signal_handler(sig, stop.set)

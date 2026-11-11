@@ -9,6 +9,7 @@
 #   make curtail   hold generation export down:  make curtail SITE=solar PCT=60
 #   make step      microgrid only - switch a block of EV load on:  make step KW=300
 #   make clock-skew  push a device's own clock out:  make clock-skew SITE=rural SECONDS=240
+#   make cap        site capacity cap, pushed as an OCPP profile:  make cap KW=100
 #   make link      degrade a site's link:   make link SITE=wind PROFILE=down
 #   make clean     stop and delete everything, including buffered telemetry
 #
@@ -40,7 +41,8 @@ SOLAR_CLOCK_HOUR ?=
 
 .PHONY: up up-debug assert-traffic demo slo registry-check registry-stats sunspec-check down ps logs stats queues link fault fault-status profiles clean queue-detail \
 	device-logs poller-logs visual prom hmi curtail step microgrid-status clock-skew clock-reset \
-	session session-stop session-status spine exemplar ocpp-logs csms-logs
+	session session-stop session-status spine exemplar ocpp-logs csms-logs \
+	cap cap-clear cap-status
 
 # STACK=debug is the OT half of the stack with no visual layer: no Prometheus, no Jaeger, no
 # HMI (M4, #20). For CI and for debugging the OT side without a browser, and it ends in an
@@ -116,7 +118,7 @@ stats:
 # after recovery: the store-and-forward demonstration in one command.
 queues:
 	@printf '%-14s %9s %9s\n' "edge" "queued" "capacity"
-	@for s in rural solar wind metro microgrid; do \
+	@for s in rural solar wind metro microgrid highway; do \
 	  raw=$$(docker compose -f compose/docker-compose.yml exec -T ops \
 	        wget -qO- http://edge-$$s:8888/metrics 2>/dev/null); \
 	  sz=$$(echo "$$raw" | grep '^otelcol_exporter_queue_size' | awk '{s+=$$2} END{print s+0}'); \
@@ -157,6 +159,28 @@ fault-status:
 PCT ?= 60
 curtail:
 	@$(COMPOSE) exec -T device-$(SITE) python site/faultctl.py curtail --pct $(PCT)
+
+# ---------------------------------------------------------------------------------
+# M4, #12: load management. The CSMS pushes an OCPP 1.6 `SetChargingProfile` with
+# `chargingProfilePurpose: ChargePointMaxProfile` — a cap on the whole charge point — and the charge
+# point shares it equally between the bays that are charging. Nothing is invented: this is the
+# protocol's own mechanism for a site limit, and docs/standards.md §6 says what subset is implemented.
+#   make cap KW=100                 # 100 kW site cap  (145 A at 230 V L-N, 3-phase)
+#   make cap AMP=90                 # ... or in amperes
+#   make cap-clear
+#   make cap-status                 # who is connected, and what cap they hold
+# ---------------------------------------------------------------------------------
+CAP_KW ?=
+CAP_AMP ?=
+cap:
+	@$(COMPOSE) exec -T csms-highway python ocpp/csmsctl.py set-cap \
+	  $(if $(CAP_KW),--kw $(CAP_KW),$(if $(CAP_AMP),--amp $(CAP_AMP),--kw 100))
+
+cap-clear:
+	@$(COMPOSE) exec -T csms-highway python ocpp/csmsctl.py clear-cap
+
+cap-status:
+	@$(COMPOSE) exec -T csms-highway python ocpp/csmsctl.py status
 
 # ---------------------------------------------------------------------------------
 # M3-4: clock skew. A device clock that is minutes out does not restart - it drifts, or
@@ -224,7 +248,7 @@ session-stop:
 # `EVSE=EVSE07` narrows it to one bay and skips the site that does not have it (cpctl exits 3,
 # which is a normal answer when a caller sweeps sites, not a failure).
 session-status:
-	@for svc in ocpp-cp ocpp-cp-metro; do \
+	@for svc in ocpp-cp ocpp-cp-metro ocpp-cp-highway; do \
 	  echo "-- $$svc --"; \
 	  $(COMPOSE) exec -T $$svc python ocpp/cpctl.py status \
 	    $(if $(EVSE),--evse $(EVSE)) || true; \

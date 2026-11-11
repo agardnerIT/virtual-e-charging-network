@@ -231,10 +231,14 @@ rule that makes `sunspec.py` shared by device and poller.
 
 - **Security profiles / TLS / client certificates** (**out of scope**). The WebSocket is plain `ws://`
   inside the OT zone; TLS would be the first thing to add if this ever left a laptop.
-- **Smart charging** — charging profiles, `SetChargingProfile`, load balancing (**deferred: #12**). The
-  derate is the charge point's own response to supply voltage, not an OCPP profile. This is the one
-  gap on this list that an issue actually wants closed, because a site with a capacity cap is M4's
-  site.
+- **Smart charging beyond one mechanism.** `SetChargingProfile` **is** implemented (M4, #12): the
+  highway site's capacity cap is a real `ChargePointMaxProfile` pushed by the CSMS, and the charge
+  point shares it equally between the bays that are charging (`docs/sites/highway.md`). What is not:
+  `chargingRateUnit: W`, multi-period schedules (`startPeriod` beyond 0), `Recurring`/`Relative`
+  profile kinds, stack levels beyond "last one wins", `TxProfile`/`TxDefaultProfile` per-connector
+  limits, and any priority between bays. `ClearChargingProfile` is implemented for the same profile.
+  A per-connector profile the CP cannot honour is **refused with a reason**, not partially applied —
+  a silent partial implementation is worse than a refusal.
 - **Firmware management, diagnostics, reservations, local auth lists, OCPI, ISO 15118 / Plug & Charge.**
 - **Persistence.** The CSMS is in-memory by design (D34); a restart forgets transactions.
 - **OCPP conformance.** This is a subset, labelled a subset, exercised by two charge points (2 and 12

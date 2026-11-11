@@ -29,6 +29,16 @@ import urllib.request
 BASE = f"http://127.0.0.1:{os.environ.get('HTTP_PORT', '8080')}"
 
 
+def _cap_line(health: dict) -> str:
+    """One line about load management, printed above the bays (M4, #12)."""
+    prof = (health or {}).get("chargingProfile") or {}
+    cap = prof.get("site_cap_a")
+    if cap is None:
+        return "cap     none (no ChargePointMaxProfile; bays offer their own maximum)"
+    return (f"cap     {cap:.1f} A site-wide ({prof.get('site_cap_kw')} kW), shared equally between "
+            f"bay(s) that are charging")
+
+
 def _default_evse() -> str:
     """The first bay this charge point starts on its own (CP_AUTO_EVSE may name several)."""
     return os.environ.get("CP_AUTO_EVSE", "EVSE01").split(",")[0].strip() or "EVSE01"
@@ -95,6 +105,7 @@ def main(argv: list[str] | None = None) -> int:
                                      for e in h["evses"]):
                 print(f"no {args.evse} at {h['chargePointId']}", file=sys.stderr)
                 return 3
+            print(_cap_line(h))
             print(_table(h, args.evse))
             return 0
         if args.command == "start":

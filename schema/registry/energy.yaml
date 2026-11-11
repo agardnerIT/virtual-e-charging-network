@@ -1950,7 +1950,7 @@ groups:
   - id: metric.energy.evse.power.real
     type: metric
     metric_name: energy.evse.power.real
-    brief: "Real power delivered by one EVSE. Zero when it is not charging."
+    brief: "Real power delivered by one EVSE. Zero when the EVSE is not charging."
     instrument: gauge
     unit: "W"
     stability: development
@@ -1966,7 +1966,7 @@ groups:
   - id: metric.energy.evse.current.offered
     type: metric
     metric_name: energy.evse.current.offered
-    brief: "Current offered after the supply-voltage derate. The number that falls during a sag."
+    brief: "Current the EVSE is offering the vehicle after the supply-voltage "
     instrument: gauge
     unit: "A"
     stability: development
@@ -1982,7 +1982,7 @@ groups:
   - id: metric.energy.evse.voltage
     type: metric
     metric_name: energy.evse.voltage
-    brief: "Phase-to-neutral supply voltage at the EVSE, measured by the site meter over Modbus."
+    brief: "Phase-to-neutral supply voltage at the EVSE, measured by the site "
     instrument: gauge
     unit: "V"
     stability: development
@@ -1998,7 +1998,7 @@ groups:
   - id: metric.energy.evse.state
     type: metric
     metric_name: energy.evse.state
-    brief: "OCPP 1.6 charge point status as a 1-of-N flag."
+    brief: "OCPP 1.6 charge point status: 1 means the EVSE is in that state."
     instrument: gauge
     unit: "1"
     stability: development
@@ -2013,7 +2013,7 @@ groups:
   - id: metric.energy.session.energy
     type: metric
     metric_name: energy.session.energy
-    brief: "Energy delivered in the current OCPP transaction."
+    brief: "Energy delivered in the current OCPP transaction. One series per "
     instrument: gauge
     unit: "kW.h"
     stability: development
@@ -2028,7 +2028,7 @@ groups:
   - id: metric.energy.session.time_to_first_power
     type: metric
     metric_name: energy.session.time_to_first_power
-    brief: "StartTransaction to the first watt delivered."
+    brief: "Seconds from StartTransaction to the first watt delivered. The SLO "
     instrument: histogram
     unit: "s"
     stability: development
@@ -2043,7 +2043,7 @@ groups:
   - id: metric.energy.session.energy.requested
     type: metric
     metric_name: energy.session.energy.requested
-    brief: "Energy the vehicle asked for, integrated over the session."
+    brief: "Energy the vehicle asked for (its requested current, capped by the "
     instrument: counter
     unit: "kW.h"
     stability: development
@@ -2058,7 +2058,7 @@ groups:
   - id: metric.energy.session.energy.delivered
     type: metric
     metric_name: energy.session.energy.delivered
-    brief: "Energy actually delivered."
+    brief: "Energy actually delivered. The pair with .requested is the delivered-"
     instrument: counter
     unit: "kW.h"
     stability: development
@@ -2073,7 +2073,7 @@ groups:
   - id: metric.energy.session.power_quality_affected
     type: metric
     metric_name: energy.session.power_quality_affected
-    brief: "Sessions in which the supply derate engaged at least once."
+    brief: "Sessions in which the supply-voltage derate engaged at least once. "
     instrument: counter
     unit: "1"
     stability: development
@@ -2088,7 +2088,7 @@ groups:
   - id: metric.ocpp.transactions.active
     type: metric
     metric_name: ocpp.transactions.active
-    brief: "Transactions the CSMS believes are open."
+    brief: "Transactions the CSMS currently believes are open."
     instrument: gauge
     unit: "1"
     stability: development
@@ -2101,7 +2101,7 @@ groups:
   - id: metric.ocpp.transactions.total
     type: metric
     metric_name: ocpp.transactions.total
-    brief: "Transactions the CSMS has started since it came up."
+    brief: "Transactions the CSMS has started since it came up (process-scoped)."
     instrument: gauge
     unit: "1"
     stability: development
@@ -2114,7 +2114,7 @@ groups:
   - id: metric.ocpp.transactions.stopped
     type: metric
     metric_name: ocpp.transactions.stopped
-    brief: "Transactions stopped, by OCPP 1.6 stop reason."
+    brief: "Transactions the CSMS accepted a StopTransaction for, by OCPP 1.6 stop "
     instrument: counter
     unit: "1"
     stability: development
@@ -2125,3 +2125,56 @@ groups:
       - ref: geo.latitude
       - ref: geo.longitude
       - ref: ocpp.stop.reason
+  - id: metric.energy.site.capacity.current
+    type: metric
+    metric_name: energy.site.capacity.current
+    brief: "Site capacity cap pushed by the CSMS as an OCPP ChargePointMaxProfile. "
+    instrument: gauge
+    unit: "A"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.phase
+  - id: metric.energy.site.load.power
+    type: metric
+    metric_name: energy.site.load.power
+    brief: "Sum of what the bays are delivering. Divide by the cap to see how close "
+    instrument: gauge
+    unit: "W"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+  - id: metric.energy.market.price
+    type: metric
+    metric_name: energy.market.price
+    brief: "NEM-style spot price for the region, AUD per MWh. Recorded, replayed in "
+    instrument: gauge
+    unit: "[AUD]/MW.h"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+  - id: metric.energy.market.price.feed_age
+    type: metric
+    metric_name: energy.market.price.feed_age
+    brief: "Age of the replayed price against the wall clock. A recorded feed is not a "
+    instrument: gauge
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude

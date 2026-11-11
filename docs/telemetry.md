@@ -26,6 +26,7 @@ is plugged into the site network (plan.md D10).
 | `solar-mildura` | Mildura Solar Farm | `solar_farm` | A utility-scale solar farm. | SunSpec 103 inverter with 2 MPPT trackers, irradiance and temperature sensors | — | impaired |
 | `wind-snowtown` | Snowtown Wind Farm | `wind_farm` | Six wind turbines plus the farm's connection point (metered separately from the machines). | One SunSpec-shaped farm controller exposing 6 turbines | — | impaired |
 | `metro-tottenham` | Tottenham Metro Depot | `charging_site` | A bus/van depot: twelve bays charging at once on one charge point. | SunSpec meter + a 12-bay OCPP charge point + its own CSMS | 12 | 12 ms fibre + jitter |
+| `highway-hume` | Hume Highway Service Centre | `charging_site` | A motorway service centre: six bays on a 100 kW supply, with a site capacity cap pushed as an OCPP `ChargePointMaxProfile`. | SunSpec meter + a 6-bay OCPP charge point + its own CSMS | 6 | impaired |
 | `microgrid-kangaroo-island` | Kangaroo Island Microgrid | `microgrid` | An island: solar, one wind turbine and a battery, with no feeder and no NEM behind it. Frequency is set by the battery inverter, not by the grid. | One SunSpec-shaped microgrid controller (busbar, BESS, 2 sources, load) | — (EV load modelled) | impaired |
 
 Read that table once and the rest of the repo makes sense. Two things surprise people:

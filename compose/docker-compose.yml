@@ -58,6 +58,7 @@ networks:
   ot-wind: {}    # wind farm, OT zone
   ot-metro: {}   # metro depot, OT zone
   ot-microgrid: {}  # isolated microgrid, OT zone (M3-2)
+  ot-highway: {}    # highway service centre, OT zone (M4)
   wan: {}        # the impaired link between site and NOC
   noc: {}        # NOC / IT zone
 
@@ -67,6 +68,7 @@ volumes:
   edge-wind-queue: {}
   edge-metro-queue: {}
   edge-microgrid-queue: {}
+  edge-highway-queue: {}
   prometheus-data: {}
   loki-data: {}
 
@@ -655,3 +657,100 @@ services:
       NOMINAL_VOLTAGE: "230"
     depends_on: [device-microgrid, edge-microgrid]
     networks: [ot-microgrid]
+
+  # ---- highway hub: six bays, a site capacity cap (M4, #12) --------------------------
+  # A motorway service centre: more bays than power. The site's 100 kW supply cannot feed six
+  # 22 kW bays at once, so the CSMS pushes a `ChargePointMaxProfile` (an OCPP 1.6 site cap) and
+  # the charge point shares it equally between the bays that are actually charging.
+  #
+  # Why this site exists: every other site here is unconstrained. This is the one where the
+  # interesting OT question - "what happens to a queue of vehicles when there is more demand than
+  # supply" - is answerable, and where a load-management decision is visible as telemetry rather
+  # than as a chart somebody drew.
+  #
+  # No new architecture (D16): the same image, the same poller, the same edge config as the other
+  # five sites; the difference is the capacity cap and six bays.
+  edge-highway:
+    <<: *collector
+    user: "0:0"   # image runs as 10001, but the disk-backed queue is a root-owned volume
+    environment:
+      SITE_ID: highway-hume
+      SITE_NAME: Hume Highway Service Centre
+      SITE_KIND: charging_site
+      SITE_LAT: "-35.1500"
+      SITE_LON: "147.4500"
+      HUB_ENDPOINT: toxiproxy:14322
+    volumes:
+      - ../collector/edge/site.yaml:/etc/otel/config.yaml:ro
+      - edge-highway-queue:/var/lib/otelcol/queue
+    depends_on: [toxiproxy]
+    networks: [ot-highway, wan]
+
+  device-highway:
+    <<: *sim
+    command: ["python", "site/site.py"]
+    environment:
+      DEVICE_ID: meter-highway-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_PORT: "5020"
+      HTTP_PORT: "8080"
+      DEVICE_CLOCK_SKEW_S: "-4"
+      NOMINAL_VOLTAGE: "230"
+      ENERGY_BASE_KWH: "58210.6"
+      WORD_ORDER: low
+    networks: [ot-highway]
+
+  poller-highway:
+    <<: *sim
+    command: ["python", "poller/poller.py"]
+    environment:
+      DEVICE_ID: meter-highway-01
+      DEVICE_MODEL: VECN SIM-METER-3P-WYE
+      MODBUS_HOST: device-highway
+      MODBUS_PORT: "5020"
+      MODBUS_UNIT_ID: "1"
+      OTLP_ENDPOINT: "http://edge-highway:4318"
+      POLL_INTERVAL_MS: "1000"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      NOMINAL_VOLTAGE: "230"
+    depends_on: [device-highway, edge-highway]
+    networks: [ot-highway]
+
+  csms-highway:
+    <<: *sim
+    command: ["python", "ocpp/csms.py"]
+    environment:
+      CSMS_PORT: "9000"
+      HTTP_PORT: "9001"
+      CSMS_ID: csms-highway-01
+      OTLP_ENDPOINT: "http://edge-highway:4318"
+      CSMS_BLOCKED_ID_TAGS: "BLOCKED-0000"
+      CSMS_HEARTBEAT_INTERVAL_S: "60"
+    depends_on: [edge-highway]
+    networks: [ot-highway]
+
+  ocpp-cp-highway:
+    <<: *sim
+    command: ["python", "ocpp/cp.py"]
+    environment:
+      CP_ID: EVSE-HIGHWAY-01
+      CP_MODEL: VECN SIM-AC22
+      # Six bays on one charge point, which is what a service centre's power cabinet looks like.
+      CP_EVSE_COUNT: "6"
+      CSMS_URL: "ws://csms-highway:9000/ocpp/EVSE-HIGHWAY-01"
+      HTTP_PORT: "8080"
+      SUPPLY_MODBUS_HOST: device-highway
+      SUPPLY_MODBUS_PORT: "5020"
+      SUPPLY_MODBUS_UNIT_ID: "1"
+      SUPPLY_POLL_INTERVAL_MS: "1000"
+      OTLP_ENDPOINT: "http://edge-highway:4318"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      # Six bays, staggered 10 s apart, all wanting 22 kW each: 132 kW of demand against a 100 kW
+      # supply, which is the whole point of the site.
+      CP_AUTO_EVSE: "EVSE01,EVSE02,EVSE03,EVSE04,EVSE05,EVSE06"
+      CP_AUTO_STAGGER_S: "10"
+      CP_SESSION_DURATION_S: "900"
+      CP_IDLE_GAP_S: "20"
+      CP_METER_INTERVAL_S: "10"
+    depends_on: [device-highway, csms-highway, edge-highway]
+    networks: [ot-highway]

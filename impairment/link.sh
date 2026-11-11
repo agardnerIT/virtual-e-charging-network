@@ -14,8 +14,8 @@
 set -euo pipefail
 
 API="${TOXIPROXY:-http://localhost:8474}"
-SITE="${1:?usage: link.sh <rural|solar|wind|metro|microgrid> <wet|degraded|satellite|down>}"
-PROFILE="${2:?usage: link.sh <rural|solar|wind|metro|microgrid> <wet|degraded|satellite|down>}"
+SITE="${1:?usage: link.sh <rural|solar|wind|metro|microgrid|highway> <wet|degraded|satellite|down>}"
+PROFILE="${2:?usage: link.sh <rural|solar|wind|metro|microgrid|highway> <wet|degraded|satellite|down>}"
 
 case "$SITE" in
   rural) PROXY=rural-wan ;;
@@ -23,6 +23,7 @@ case "$SITE" in
   wind)  PROXY=wind-wan ;;
   metro) PROXY=metro-wan ;;
   microgrid) PROXY=microgrid-wan ;;
+  highway) PROXY=highway-wan ;;
   *) echo "unknown site: $SITE (want rural|solar|wind|metro|microgrid)" >&2; exit 1 ;;
 esac
 
@@ -46,7 +47,7 @@ if ! curl -s "$API/proxies/$PROXY" | grep -q '"name"'; then
   case "$PROXY" in
     rural-wan) PORT=14317 ;; solar-wan) PORT=14318 ;;
     wind-wan) PORT=14319 ;; metro-wan) PORT=14320 ;;
-    microgrid-wan) PORT=14321 ;;
+    microgrid-wan) PORT=14321 ;; highway-wan) PORT=14322 ;;
   esac
   curl -s -X POST "$API/proxies" \
     -d "{\"name\":\"$PROXY\",\"listen\":\"0.0.0.0:$PORT\",\"upstream\":\"hub:4317\",\"enabled\":true}" >/dev/null

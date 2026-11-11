@@ -14,6 +14,7 @@ authoritative and is wrong. So this checks **both** directions:
 Sources of truth for "what we emit":
   collector/edge/site.yaml     the edge collector's OTLP rename statements (the semantic names)
   sim/ocpp/cp.py, csms.py      the application instruments (they emit semantic names directly)
+  sim/market/feed.py           the market feed, same rule
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 EDGE = ROOT / "collector/edge/site.yaml"
 REGISTRY = ROOT / "schema/registry/energy.yaml"
-APP_FILES = [ROOT / "sim/ocpp/cp.py", ROOT / "sim/ocpp/csms.py"]
+APP_FILES = [ROOT / "sim/ocpp/cp.py", ROOT / "sim/ocpp/csms.py", ROOT / "sim/market/feed.py"]
 
 # Names that are collected but deliberately outside this registry's scope, with the reason. An
 # entry here is a decision, not a suppression: the point of the list is that adding to it is a

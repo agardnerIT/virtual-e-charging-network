@@ -149,6 +149,10 @@ const POINTS = {
   energy_market_price_AUD_per_MW_h:        { slot: 'price',        unit: 'AUD/MWh', label: 'Spot price',   decimals: 2, otel: 'energy.market.price' },
   energy_market_price_feed_age_seconds:    { slot: 'price_age',    unit: 's',       label: 'Price feed age', decimals: 0, otel: 'energy.market.price.feed_age' },
 
+  // --- load management (M4, #12): a site cap pushed as an OCPP ChargePointMaxProfile ---
+  energy_site_capacity_current_amperes:   { slot: 'site_cap',     unit: 'A',   label: 'Site capacity cap', decimals: 1, otel: 'energy.site.capacity.current' },
+  energy_site_load_power_watts:           { slot: 'site_load',    unit: 'W',   label: 'Site load (bays)',  decimals: 0, otel: 'energy.site.load.power' },
+
   // --- isolated microgrid (M3-2, the fifth site) ---
   // Frequency first: on this site it is the primary signal, not voltage. A grid-forming
   // inverter holds the busbar at 230 V; nothing holds it at 50.00 Hz.
@@ -1333,9 +1337,17 @@ function renderCost(site) {
     .reduce((sum, p) => sum + (p.value || 0), 0);
   const aud = (energy * pricePoint.value) / 1000;
   const region = pricePoint.labels.energy_market_region || 'spot';
+  // A site with a capacity cap (M4, #12) says so here, with the number that matters: how close the
+  // bays are to the cap. Load management is a ratio, not a state.
+  const capPoint = [...state.points.values()].find((p) => p.def.slot === 'site_cap');
+  const loadPoint = [...state.points.values()].find((p) => p.def.slot === 'site_load');
+  const capText = capPoint
+    ? ` \u00b7 cap ${fmt(capPoint.value, 1)} A (${fmt(capPoint.value * 0.69, 0)} kW at 230 V L-N, 3-phase)` +
+      (loadPoint ? `, bays now at ${fmt(loadPoint.value / 1000, 1)} kW (${fmt(100 * loadPoint.value / 1000 / (capPoint.value * 0.69), 0)} %)` : '')
+    : '';
   el.textContent = energy > 0
-    ? `${region} $${fmt(pricePoint.value, 2)}/MWh (recorded) \u00b7 ${fmt(energy, 2)} kWh in live sessions \u2248 $${fmt(aud, 2)}`
-    : `${region} $${fmt(pricePoint.value, 2)}/MWh (recorded) \u00b7 no energy in live sessions, so no cost to derive`;
+    ? `${region} $${fmt(pricePoint.value, 2)}/MWh (recorded) \u00b7 ${fmt(energy, 2)} kWh in live sessions \u2248 $${fmt(aud, 2)}${capText}`
+    : `${region} $${fmt(pricePoint.value, 2)}/MWh (recorded) \u00b7 no energy in live sessions, so no cost to derive${capText}`;
 }
 
 function renderPoints(site) {
