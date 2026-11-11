@@ -41,6 +41,17 @@ not pass a SunSpec conformance test.
 | Not implemented (**out of scope**, D4) | Function codes 01/02/04/05/06/15/16; RTU/ASCII; serial; exceptions beyond "error". A read-only poller needs 03 and nothing else. |
 | Honesty note | No timestamp and no quality flag exists anywhere in Modbus. Both are invented downstream, deliberately, and both are the point (plan.md D12, D21). |
 
+### 2.0 The vocabulary is a registry, and it says what it is
+
+`schema/registry/energy.yaml` is a [Weaver](https://github.com/open-telemetry/weaver) registry of the
+semantic metric names, units, instruments and bounded attributes this stack emits — 94 metrics and
+31 attributes, validated by `make registry-check` together with a two-way check against the emitters
+([`schema/README.md`](../schema/README.md)).
+
+Two things it deliberately is **not**: a claim of conformance to any published semantic convention,
+and a claim of completeness. Every group is `stability: development`, the vocabulary is this repo's,
+and publishing it upstream is issue #16 under the rule of two (D6).
+
 ## 2. SunSpec-shaped models
 
 Spec: *SunSpec Modbus Specification* (SunSpec Alliance). Point names, scale-factor

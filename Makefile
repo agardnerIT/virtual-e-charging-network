@@ -38,7 +38,7 @@ VISUAL_PHASES ?=
 # default, which means real local time and an honest irradiance curve.
 SOLAR_CLOCK_HOUR ?=
 
-.PHONY: up up-debug assert-traffic demo slo down ps logs stats queues link fault fault-status profiles clean queue-detail \
+.PHONY: up up-debug assert-traffic demo slo registry-check registry-stats down ps logs stats queues link fault fault-status profiles clean queue-detail \
 	device-logs poller-logs visual prom hmi curtail step microgrid-status clock-skew clock-reset \
 	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
@@ -279,6 +279,22 @@ demo:
 # M5, #13: the four SLOs, from the store, with targets. WINDOW=6h for the ugly truth.
 slo:
 	@./tools/slo.sh
+
+# M4, #9: the published semantic conventions. `registry-check` is the gate: weaver validates the
+# file, and the coverage script asserts that the registry and the emitters agree in BOTH
+# directions — a metric the stack emits and the registry omits fails, and so does a metric the
+# registry describes that nothing emits.
+WEAVER := docker run --rm -v $(PWD)/schema:/registry otel/weaver:latest
+
+registry-check:
+	@echo "== weaver registry check"
+	@$(WEAVER) registry check -r /registry
+	@echo
+	@echo "== registry vs emitters"
+	@./tools/registry-coverage.py
+
+registry-stats:
+	@$(WEAVER) registry stats -r /registry
 
 profiles:
 	@curl -s $(TOXIPROXY)/proxies | python3 -m json.tool

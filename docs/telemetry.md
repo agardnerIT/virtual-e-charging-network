@@ -113,7 +113,10 @@ Prometheus you see this:
 | `energy.meter.temperature` (Cel) | `energy_meter_temperature_celsius` |
 
 The full mapping table also lives in `POINTS` in `hmi/app.js`, which is the one place the mimic
-declares what it draws.
+declares what it draws — and, machine-readably, in [`schema/registry/energy.yaml`](../schema/README.md):
+a Weaver registry of every metric name, unit, instrument and bounded attribute this stack emits.
+`make registry-check` validates it *and* asserts it agrees with the emitters in both directions, so
+a new metric cannot land in a collector without also landing in the vocabulary.
 
 ### 3.2 The dimensions you can split on
 

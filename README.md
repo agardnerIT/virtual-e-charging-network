@@ -10,7 +10,6 @@ testable boundary between operational technology (OT) and IT. This repo runs tho
 asserting them.
 
 ![Telemetry architecture](docs/architecture.png)
-
 Source of truth: [`docs/architecture.drawio`](docs/architecture.drawio); solid is running today, dashed planned.
 
 ## The idea
@@ -35,9 +34,9 @@ quirks into one config and destroys store-and-forward.
 | **A WAN outage that loses nothing** | The edge queue is on disk. It fills during an outage and drains on restore — measured, not projected | An SDK retry queue drops what it cannot hold in memory. Multi-hour retention is a collector feature, not an app one. |
 | **The Collector as the OT/IT boundary** | Nothing in the OT zone publishes a host port; one egress process per site; control is `docker compose exec` | Agent-per-host topologies assume the agent can reach out and be reached. Here the gap is the point, and the thing inside it has to speak the device protocol. |
 
-Each has a command below and a decision in [`plan.md`](plan.md). The sharpest is the time one:
-`./tools/clock-inversion.sh` pushes a device clock four minutes out, and a session stop then arrives
-**before** the sag that caused it — unless you order by receive time (D42, [`docs/ot-primer.md`](docs/ot-primer.md#51-the-clock-problem-with-a-worked-example)).
+Each has a command below and a decision in [`plan.md`](plan.md). The sharpest is the time one: `./tools/clock-inversion.sh`
+pushes a device clock four minutes out, and a session stop then arrives **before** the sag that caused it — unless you
+order by receive time (D42, [`docs/ot-primer.md`](docs/ot-primer.md#51-the-clock-problem-with-a-worked-example)).
 
 ## See it in 60 seconds
 
@@ -50,8 +49,8 @@ make session-status SITE=metro   # twelve bays: supply voltage, state, kW, offer
 
 `make spine` drops supply voltage to 0.88 pu (per-unit — 0.88 × 230 V), the charger **derates** (reduces its
 offered current) to 10.3 kW, then 0.78 pu ends the transaction for `PowerLoss`. Nothing is scripted on the
-trace side: the charge point reads the meter over Modbus and reacts. Night where you are?
-`make up SOLAR_CLOCK_HOUR=12` pins the solar farm to daytime.
+trace side: the charge point reads the meter over Modbus and reacts. Night where you are? `make up
+SOLAR_CLOCK_HOUR=12` pins the solar farm to daytime.
 
 ## What is running
 
@@ -67,10 +66,10 @@ that makes its own frequency.
 | `metro-tottenham` | load, depot | `charging_site` | SunSpec meter + a 12-bay charge point | 12 ms fibre | 12 |
 | `microgrid-kangaroo-island` | island | `microgrid` | Solar + one turbine + a grid-forming battery; no feeder, so frequency is set on site | impaired | — |
 
-The kind splits *regime*, not size: the rural site and the depot are both `charging_site`. Plain words per
-site, and which metric families live where: [`docs/telemetry.md` §1](docs/telemetry.md#1-the-sites-spelled-out).
-Five impaired links (`wet`/`degraded`/`satellite`/`down`); the visual layer is Prometheus + Jaeger + our own
-map and mimic, fed only from the pipeline. Measured: 24 containers, 1 048 MiB ([`docs/sizing.md`](docs/sizing.md)).
+The kind splits *regime*, not size: the rural site and the depot are both `charging_site`. Plain words per site,
+and which families live where: [`docs/telemetry.md` §1](docs/telemetry.md#1-the-sites-spelled-out). Five impaired
+links; the visual layer is Prometheus + Jaeger + our own map and mimic, fed only from the pipeline. Measured:
+24 containers, 1 048 MiB ([`docs/sizing.md`](docs/sizing.md)).
 
 ## What the stack emits, before you run it
 
@@ -157,5 +156,5 @@ The rest is in the [`Makefile`](Makefile); the measurement harnesses (`outage-me
 
 ## Status and next
 
-M0–M3 are complete and verified: five sites, a picture at <http://127.0.0.1:8091>, five clean edges, `make
-spine` ending in `PowerLoss`, twelve bays at the depot. Next: **M4**, in the [milestones](https://github.com/agardnerIT/virtual-e-charging-network/milestones).
+M0–M3 are done and verified: five sites, a picture at <http://127.0.0.1:8091>, five clean edges, `make spine` ending
+in `PowerLoss`, twelve bays. `make demo` runs all of it and fails loudly. Next: **M4** ([milestones](https://github.com/agardnerIT/virtual-e-charging-network/milestones)).

@@ -1,0 +1,1974 @@
+# energy.* semantic conventions for this repo (Weaver registry).
+#
+# Authored, not generated: the first draft was produced from collector/edge/site.yaml so that
+# names, units and descriptions could not be mistyped, and `make registry-check` now keeps the
+# two in step in BOTH directions — a metric the edge emits and this file omits is a failing
+# build, and so is a metric here that nothing emits.
+#
+# Naming decision (D44): one public prefix, groups inside it that map onto the SIG boundaries
+# a split would use.
+
+groups:
+  - id: registry.energy.attributes
+    type: attribute_group
+    brief: The bounded attributes every energy signal can carry.
+    stability: development
+    attributes:
+      - id: energy.site.id
+        type: string
+        brief: "Stable site identifier. Stamped by the edge collector."
+        stability: development
+        examples: [rural-brokenhill, metro-tottenham, microgrid-kangaroo-island]
+      - id: energy.site.name
+        type: string
+        brief: "Human-readable site name."
+        stability: development
+        examples: [Broken Hill EV Charging Site]
+      - id: energy.site.kind
+        type: string
+        brief: "Regime, not size: charging site, solar farm, wind farm or microgrid."
+        stability: development
+        examples: [charging_site, solar_farm, wind_farm, microgrid]
+      - id: geo.latitude
+        type: double
+        brief: "Site latitude (WGS84)."
+        stability: development
+      - id: geo.longitude
+        type: double
+        brief: "Site longitude (WGS84)."
+        stability: development
+      - id: otel.data_point.quality
+        type: string
+        brief: "Validity of a data point that is present. good/stale/bad/comms-lost. Authored by the edge collector."
+        stability: development
+        examples: [good, stale, bad, comms-lost]
+      - id: energy.phase
+        type: string
+        brief: "Phase, in IEC naming. The device says A/B/C; the edge collector translates."
+        stability: development
+        examples: [L1, L2, L3]
+      - id: energy.direction
+        type: string
+        brief: "Energy direction for a cumulative register."
+        stability: development
+        examples: [import, export]
+      - id: energy.evse.id
+        type: string
+        brief: "Billing-grade bay identifier from OCPP."
+        stability: development
+        examples: [EVSE01, EVSE12]
+      - id: energy.connector.id
+        type: int
+        brief: "OCPP 1.6 connector number (1-based)."
+        stability: development
+      - id: energy.evse.state.text
+        type: string
+        brief: "Readable OCPP charge-point status, written by the edge collector."
+        stability: development
+        examples: [Available, Charging]
+      - id: ocpp.transaction.id
+        type: int
+        brief: "OCPP 1.6 transaction id, allocated by the CSMS."
+        stability: development
+      - id: energy.session.id
+        type: string
+        brief: "Session span identity. Unbounded by design: one per session."
+        stability: development
+        examples: [9f2c1a4b7d3e]
+      - id: energy.mppt
+        type: int
+        brief: "MPPT tracker block index (SunSpec model 160)."
+        stability: development
+        examples: [1, 2]
+      - id: energy.turbine
+        type: int
+        brief: "Turbine index within a wind farm (repeating vendor model)."
+        stability: development
+        examples: [1, 2, 3]
+      - id: energy.irradiance.plane
+        type: string
+        brief: "Which plane an irradiance reading is in."
+        stability: development
+        examples: [horizontal, plane_of_array]
+      - id: energy.source.name
+        type: string
+        brief: "Which generating source block a reading belongs to."
+        stability: development
+        examples: [solar, wind]
+      - id: energy.point
+        type: string
+        brief: "The device-side point name, for provenance back to the register map."
+        stability: development
+        examples: [VphA, W]
+      - id: modbus.register.address
+        type: int
+        brief: "Absolute Modbus register address."
+        stability: development
+      - id: modbus.register.scale_factor
+        type: int
+        brief: "The device scale factor applied (value = raw x 10^sf)."
+        stability: development
+      - id: energy.device.timestamp
+        type: double
+        brief: "The device clock at the moment of the reading. Provenance; never a sort key (D42)."
+        stability: development
+      - id: energy.receive.timestamp
+        type: double
+        brief: "When the collector saw the value. The only comparable clock."
+        stability: development
+      - id: energy.bess.status.text
+        type: string
+        brief: "Readable battery state."
+        stability: development
+        examples: [idle, charging, discharging, hold]
+      - id: energy.bess.hold_reason.text
+        type: string
+        brief: "Why the grid former stopped doing what the busbar asked."
+        stability: development
+        examples: [none, soc-high, soc-low, power-limit]
+      - id: energy.inverter.status.text
+        type: string
+        brief: "Readable inverter operating state."
+        stability: development
+        examples: [off, sleeping, mppt, fault]
+      - id: energy.curtailment.text
+        type: string
+        brief: "Why generation is held down."
+        stability: development
+        examples: [none, export_limited, inverter_clipped, connection_cap]
+      - id: energy.fault_code.text
+        type: string
+        brief: "Readable device fault code."
+        stability: development
+        examples: [none]
+      - id: energy.turbine.status.text
+        type: string
+        brief: "Readable turbine state."
+        stability: development
+        examples: [idle, starting, producing, curtailed, fault]
+      - id: energy.windfarm.status.text
+        type: string
+        brief: "Readable farm state."
+        stability: development
+        examples: [idle, producing]
+      - id: energy.microgrid.grid_forming_source
+        type: string
+        brief: "Which asset sets the voltage and frequency on an island."
+        stability: development
+        examples: [bess]
+      - id: ocpp.stop.reason
+        type: string
+        brief: "OCPP 1.6 StopTransaction reason."
+        stability: development
+        examples: [Local, PowerLoss, Other]
+  - id: metric.energy.bess.energy
+    type: metric
+    metric_name: energy.bess.energy
+    brief: "Lifetime energy throughput of the battery, charge plus discharge."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.bess.energy.usable
+    type: metric
+    metric_name: energy.bess.energy.usable
+    brief: "energy.bess.energy.usable"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.bess.hold_reason
+    type: metric
+    metric_name: energy.bess.hold_reason
+    brief: "The battery is at its power limit and cannot do more about the imbalance, so frequency is free to move."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.bess.hold_reason.text
+  - id: metric.energy.bess.power.max_charge
+    type: metric
+    metric_name: energy.bess.power.max_charge
+    brief: "energy.bess.power.max_charge"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.bess.power.max_discharge
+    type: metric
+    metric_name: energy.bess.power.max_discharge
+    brief: "energy.bess.power.max_discharge"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.bess.power.real
+    type: metric
+    metric_name: energy.bess.power.real
+    brief: "Battery power. Positive is discharge into the busbar, negative is charging from surplus generation."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.bess.state_of_charge
+    type: metric
+    metric_name: energy.bess.state_of_charge
+    brief: "State of charge of the grid-forming battery."
+    instrument: gauge
+    unit: "%"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.bess.status
+    type: metric
+    metric_name: energy.bess.status
+    brief: "energy.bess.status"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.bess.status.text
+  - id: metric.energy.bess.temperature
+    type: metric
+    metric_name: energy.bess.temperature
+    brief: "energy.bess.temperature"
+    instrument: gauge
+    unit: "Cel"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.current
+    type: metric
+    metric_name: energy.inverter.current
+    brief: "AC current per phase (average when no phase attribute is present)."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.curtailment
+    type: metric
+    metric_name: energy.inverter.curtailment
+    brief: "0 not limited, 1 export-limited by the network, 2 clipped by the inverter's own AC rating."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.curtailment.text
+  - id: metric.energy.inverter.dc.current
+    type: metric
+    metric_name: energy.inverter.dc.current
+    brief: "energy.inverter.dc.current"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.dc.energy
+    type: metric
+    metric_name: energy.inverter.dc.energy
+    brief: "energy.inverter.dc.energy"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.dc.power
+    type: metric
+    metric_name: energy.inverter.dc.power
+    brief: "DC power aggregated across all MPPT trackers. The AC/DC ratio is the conversion efficiency."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.dc.voltage
+    type: metric
+    metric_name: energy.inverter.dc.voltage
+    brief: "energy.inverter.dc.voltage"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.energy
+    type: metric
+    metric_name: energy.inverter.energy
+    brief: "Cumulative AC energy exported, read from the inverter's lifetime register."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.event
+    type: metric
+    metric_name: energy.inverter.event
+    brief: "energy.inverter.event"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.export_limit
+    type: metric
+    metric_name: energy.inverter.export_limit
+    brief: "Network export limit as a percentage of nameplate AC. 100 means uncurtailed."
+    instrument: gauge
+    unit: "%"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.fault_code
+    type: metric
+    metric_name: energy.inverter.fault_code
+    brief: "energy.inverter.fault_code"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.fault_code.text
+  - id: metric.energy.inverter.frequency
+    type: metric
+    metric_name: energy.inverter.frequency
+    brief: "energy.inverter.frequency"
+    instrument: gauge
+    unit: "Hz"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.mppt.current
+    type: metric
+    metric_name: energy.inverter.mppt.current
+    brief: "energy.inverter.mppt.current"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.mppt
+  - id: metric.energy.inverter.mppt.power
+    type: metric
+    metric_name: energy.inverter.mppt.power
+    brief: "DC power for one MPPT tracker block. Trackers disagree when a cloud edge crosses them."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.mppt
+  - id: metric.energy.inverter.mppt.temperature
+    type: metric
+    metric_name: energy.inverter.mppt.temperature
+    brief: "energy.inverter.mppt.temperature"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.mppt
+  - id: metric.energy.inverter.mppt.voltage
+    type: metric
+    metric_name: energy.inverter.mppt.voltage
+    brief: "energy.inverter.mppt.voltage"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.mppt
+  - id: metric.energy.inverter.power.apparent
+    type: metric
+    metric_name: energy.inverter.power.apparent
+    brief: "energy.inverter.power.apparent"
+    instrument: gauge
+    unit: "VA"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.power.reactive
+    type: metric
+    metric_name: energy.inverter.power.reactive
+    brief: "energy.inverter.power.reactive"
+    instrument: gauge
+    unit: "var"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.power.real
+    type: metric
+    metric_name: energy.inverter.power.real
+    brief: "Real AC power. A PV inverter exports, so this is always production, never import."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.power_factor
+    type: metric
+    metric_name: energy.inverter.power_factor
+    brief: "energy.inverter.power_factor"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.status
+    type: metric
+    metric_name: energy.inverter.status
+    brief: "SunSpec model 103 operating state (3 sleeping, 4 MPPT, 7 fault)."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.inverter.status.text
+  - id: metric.energy.inverter.status.vendor
+    type: metric
+    metric_name: energy.inverter.status.vendor
+    brief: "energy.inverter.status.vendor"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.temperature.cabinet
+    type: metric
+    metric_name: energy.inverter.temperature.cabinet
+    brief: "energy.inverter.temperature.cabinet"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.temperature.heatsink
+    type: metric
+    metric_name: energy.inverter.temperature.heatsink
+    brief: "energy.inverter.temperature.heatsink"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.inverter.voltage
+    type: metric
+    metric_name: energy.inverter.voltage
+    brief: "AC phase-to-neutral voltage at the inverter terminals (690 V L-L system)."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.inverter.voltage.line
+    type: metric
+    metric_name: energy.inverter.voltage.line
+    brief: "AC phase-to-phase voltage at the inverter terminals."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.meter.current
+    type: metric
+    metric_name: energy.meter.current
+    brief: "Per-phase or average line current."
+    instrument: gauge
+    unit: "A"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.meter.energy
+    type: metric
+    metric_name: energy.meter.energy
+    brief: "Cumulative energy register, monotonically increasing."
+    instrument: gauge
+    unit: "kW.h"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.direction
+  - id: metric.energy.meter.frequency
+    type: metric
+    metric_name: energy.meter.frequency
+    brief: "Supply frequency. 50 Hz nominal in Australia; NEM normal band ~49.85-50.15 Hz."
+    instrument: gauge
+    unit: "Hz"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.meter.power.apparent
+    type: metric
+    metric_name: energy.meter.power.apparent
+    brief: "Apparent power. Sizing quantity for cables and switchgear, which are thermally limited in VA."
+    instrument: gauge
+    unit: "VA"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.meter.power.reactive
+    type: metric
+    metric_name: energy.meter.power.reactive
+    brief: "Reactive power. Positive means inductive / lagging."
+    instrument: gauge
+    unit: "var"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.meter.power.real
+    type: metric
+    metric_name: energy.meter.power.real
+    brief: "Real power. Positive means import (power flowing into the site)."
+    instrument: gauge
+    unit: "W"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.meter.power_factor
+    type: metric
+    metric_name: energy.meter.power_factor
+    brief: "Power factor, unsigned; lead/lag is carried by the reactive power sign."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.meter.temperature
+    type: metric
+    metric_name: energy.meter.temperature
+    brief: "Meter enclosure temperature."
+    instrument: gauge
+    unit: "Cel"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.meter.voltage
+    type: metric
+    metric_name: energy.meter.voltage
+    brief: "Per-phase or average phase-to-neutral voltage."
+    instrument: gauge
+    unit: "V"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.microgrid.frequency
+    type: metric
+    metric_name: energy.microgrid.frequency
+    brief: "Busbar frequency, set by the grid-forming battery inverter. Not held at 50.00 Hz, it moves with the load/generation imbalance (droop control, 2% here)."
+    instrument: gauge
+    unit: "Hz"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.microgrid.grid_forming_unit
+    type: metric
+    metric_name: energy.microgrid.grid_forming_unit
+    brief: "energy.microgrid.grid_forming_unit"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.microgrid.grid_forming_source
+  - id: metric.energy.microgrid.load.power.balance
+    type: metric
+    metric_name: energy.microgrid.load.power.balance
+    brief: "Generation minus load *before* the battery responded. Positive is surplus."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.microgrid.load.power.ev
+    type: metric
+    metric_name: energy.microgrid.load.power.ev
+    brief: "Power drawn by the EV block alone. This is the load step the grid former has to survive."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.microgrid.load.power.real
+    type: metric
+    metric_name: energy.microgrid.load.power.real
+    brief: "Real power drawn by the site, including EV charging. Positive is load."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.microgrid.rocof
+    type: metric
+    metric_name: energy.microgrid.rocof
+    brief: "Rate of change of frequency. Low inertia is the signature of an inverter-based island."
+    instrument: gauge
+    unit: "Hz/s"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.microgrid.source.availability
+    type: metric
+    metric_name: energy.microgrid.source.availability
+    brief: "energy.microgrid.source.availability"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.source.name
+  - id: metric.energy.microgrid.source.id
+    type: metric
+    metric_name: energy.microgrid.source.id
+    brief: "energy.microgrid.source.id"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.source.name
+  - id: metric.energy.microgrid.source.power.available
+    type: metric
+    metric_name: energy.microgrid.source.power.available
+    brief: "What that source could have produced. The gap to the delivered value is curtailment."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.source.name
+  - id: metric.energy.microgrid.source.power.real
+    type: metric
+    metric_name: energy.microgrid.source.power.real
+    brief: "Real power from one source block. energy.source.name says which (solar or wind)."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.source.name
+  - id: metric.energy.microgrid.voltage
+    type: metric
+    metric_name: energy.microgrid.voltage
+    brief: "Busbar voltage. Held by the grid former, so it dips far less under load than a weak rural feeder does."
+    instrument: gauge
+    unit: "V"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+  - id: metric.energy.pv.ambient_temperature
+    type: metric
+    metric_name: energy.pv.ambient_temperature
+    brief: "energy.pv.ambient_temperature"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.pv.irradiance
+    type: metric
+    metric_name: energy.pv.irradiance
+    brief: "Plane-of-array or global-horizontal irradiance; which plane is in energy.irradiance.plane."
+    instrument: gauge
+    unit: "W/m2"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.irradiance.plane
+  - id: metric.energy.pv.module_temperature
+    type: metric
+    metric_name: energy.pv.module_temperature
+    brief: "Back-of-module cell temperature. Derates DC power; the reason a hot clear day produces less."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+  - id: metric.energy.turbine.availability
+    type: metric
+    metric_name: energy.turbine.availability
+    brief: "energy.turbine.availability"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.current
+    type: metric
+    metric_name: energy.turbine.current
+    brief: "energy.turbine.current"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.turbine
+  - id: metric.energy.turbine.energy
+    type: metric
+    metric_name: energy.turbine.energy
+    brief: "energy.turbine.energy"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.pitch_angle
+    type: metric
+    metric_name: energy.turbine.pitch_angle
+    brief: "Blade pitch. 0 degrees below rated wind, feathering above it to shed power."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.power.reactive
+    type: metric
+    metric_name: energy.turbine.power.reactive
+    brief: "energy.turbine.power.reactive"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.turbine
+  - id: metric.energy.turbine.power.real
+    type: metric
+    metric_name: energy.turbine.power.real
+    brief: "One turbine's real AC power. Goes as the cube of wind speed, so it swings hard."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.turbine
+  - id: metric.energy.turbine.rotor_speed
+    type: metric
+    metric_name: energy.turbine.rotor_speed
+    brief: "One turbine's rotor speed. Zero below cut-in, capped at rated."
+    instrument: gauge
+    unit: "/min"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.status
+    type: metric
+    metric_name: energy.turbine.status
+    brief: "energy.turbine.status"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+      - ref: energy.turbine.status.text
+  - id: metric.energy.turbine.temperature.gearbox
+    type: metric
+    metric_name: energy.turbine.temperature.gearbox
+    brief: "energy.turbine.temperature.gearbox"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.temperature.nacelle
+    type: metric
+    metric_name: energy.turbine.temperature.nacelle
+    brief: "energy.turbine.temperature.nacelle"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.voltage
+    type: metric
+    metric_name: energy.turbine.voltage
+    brief: "energy.turbine.voltage"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.turbine
+  - id: metric.energy.turbine.wind_direction
+    type: metric
+    metric_name: energy.turbine.wind_direction
+    brief: "energy.turbine.wind_direction"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.turbine.wind_speed
+    type: metric
+    metric_name: energy.turbine.wind_speed
+    brief: "One turbine's wind speed. Machines in the same row see different wind."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.ambient_temperature
+    type: metric
+    metric_name: energy.windfarm.ambient_temperature
+    brief: "energy.windfarm.ambient_temperature"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.availability
+    type: metric
+    metric_name: energy.windfarm.availability
+    brief: "Turbines available / total, since the farm controller reports a count."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.curtailment
+    type: metric
+    metric_name: energy.windfarm.curtailment
+    brief: "energy.windfarm.curtailment"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+      - ref: energy.curtailment.text
+  - id: metric.energy.windfarm.energy
+    type: metric
+    metric_name: energy.windfarm.energy
+    brief: "energy.windfarm.energy"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.export_limit
+    type: metric
+    metric_name: energy.windfarm.export_limit
+    brief: "Network export limit as a percentage of farm rating. 100 means uncurtailed."
+    instrument: gauge
+    unit: "%"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.fault_code
+    type: metric
+    metric_name: energy.windfarm.fault_code
+    brief: "energy.windfarm.fault_code"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+      - ref: energy.fault_code.text
+  - id: metric.energy.windfarm.frequency
+    type: metric
+    metric_name: energy.windfarm.frequency
+    brief: "energy.windfarm.frequency"
+    instrument: gauge
+    unit: "Hz"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.power.reactive
+    type: metric
+    metric_name: energy.windfarm.power.reactive
+    brief: "energy.windfarm.power.reactive"
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.power.real
+    type: metric
+    metric_name: energy.windfarm.power.real
+    brief: "Real AC power at the point of connection. Smoother than any single turbine."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.phase
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.status
+    type: metric
+    metric_name: energy.windfarm.status
+    brief: "0 idle, 1 starting, 2 producing, 3 curtailed, 7 fault (vendor enum; see docs/standards.md)."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+      - ref: energy.windfarm.status.text
+  - id: metric.energy.windfarm.wind_direction
+    type: metric
+    metric_name: energy.windfarm.wind_direction
+    brief: "energy.windfarm.wind_direction"
+    instrument: gauge
+    unit: "deg"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.windfarm.wind_speed
+    type: metric
+    metric_name: energy.windfarm.wind_speed
+    brief: "Mean wind speed across the farm's turbines."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: otel.data_point.quality
+      - ref: energy.point
+      - ref: modbus.register.address
+      - ref: modbus.register.scale_factor
+      - ref: energy.device.timestamp
+      - ref: energy.receive.timestamp
+      - ref: energy.turbine
+  - id: metric.energy.evse.power.real
+    type: metric
+    metric_name: energy.evse.power.real
+    brief: "Real power delivered by one EVSE. Zero when it is not charging."
+    instrument: gauge
+    unit: "W"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.phase
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.evse.current.offered
+    type: metric
+    metric_name: energy.evse.current.offered
+    brief: "Current offered after the supply-voltage derate. The number that falls during a sag."
+    instrument: gauge
+    unit: "A"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.phase
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.evse.voltage
+    type: metric
+    metric_name: energy.evse.voltage
+    brief: "Phase-to-neutral supply voltage at the EVSE, measured by the site meter over Modbus."
+    instrument: gauge
+    unit: "V"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.phase
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.evse.state
+    type: metric
+    metric_name: energy.evse.state
+    brief: "OCPP 1.6 charge point status as a 1-of-N flag."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.session.energy
+    type: metric
+    metric_name: energy.session.energy
+    brief: "Energy delivered in the current OCPP transaction."
+    instrument: gauge
+    unit: "kW.h"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.session.time_to_first_power
+    type: metric
+    metric_name: energy.session.time_to_first_power
+    brief: "StartTransaction to the first watt delivered."
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.session.energy.requested
+    type: metric
+    metric_name: energy.session.energy.requested
+    brief: "Energy the vehicle asked for, integrated over the session."
+    instrument: counter
+    unit: "kW.h"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.session.energy.delivered
+    type: metric
+    metric_name: energy.session.energy.delivered
+    brief: "Energy actually delivered."
+    instrument: counter
+    unit: "kW.h"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.energy.session.power_quality_affected
+    type: metric
+    metric_name: energy.session.power_quality_affected
+    brief: "Sessions in which the supply derate engaged at least once."
+    instrument: counter
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: energy.evse.id
+      - ref: energy.connector.id
+  - id: metric.ocpp.transactions.active
+    type: metric
+    metric_name: ocpp.transactions.active
+    brief: "Transactions the CSMS believes are open."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+  - id: metric.ocpp.transactions.total
+    type: metric
+    metric_name: ocpp.transactions.total
+    brief: "Transactions the CSMS has started since it came up."
+    instrument: gauge
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+  - id: metric.ocpp.transactions.stopped
+    type: metric
+    metric_name: ocpp.transactions.stopped
+    brief: "Transactions stopped, by OCPP 1.6 stop reason."
+    instrument: counter
+    unit: "1"
+    stability: development
+    attributes:
+      - ref: energy.site.id
+      - ref: energy.site.name
+      - ref: energy.site.kind
+      - ref: geo.latitude
+      - ref: geo.longitude
+      - ref: ocpp.stop.reason
