@@ -121,6 +121,16 @@ stats:
 	  "table {{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}" \
 	  $$($(COMPOSE) ps -q)
 
+# The same measurement as `stats`, printed as the markdown table docs/sizing.md is written in, with
+# the total — so "re-run and update the number" is one command and one paste, not a transcription.
+# The formatting lives in tools/footprint.py: a multi-line python -c inside a recipe needs a tab on
+# every line, and getting that wrong is a "missing separator" three edits deep.
+footprint:
+	@docker stats --no-stream --format '{{.Name}}|{{.MemUsage}}' $$($(COMPOSE) ps -q 2>/dev/null) \
+	  | ./tools/footprint.py
+	@printf '\nMethod: docker stats --no-stream; this is the number D10 gates on, and it is not VmRSS\n'
+	@printf '(docs/findings.md #35). Measured %s on %s.\n' "$$(date -u +%FT%TZ)" "$$(hostname)"
+
 # Depth of each edge's disk-backed sending queue, read from the collector's own
 # telemetry over the compose network. Non-zero during an outage, falling back to zero
 # after recovery: the store-and-forward demonstration in one command.
