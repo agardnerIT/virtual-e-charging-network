@@ -284,7 +284,7 @@ sent, and carries four values:
 
 | Value | Means | When it is set |
 |---|---|---|
-| `good` | The device answered and the value is current | normal operation — all 310 series today |
+| `good` | The device answered and the value is current | normal operation — nearly every series, nearly always |
 | `stale` | The device answered, but the device's own clock says the reading is old | device clock lag beyond the poller's staleness window |
 | `bad` | The register exists but has no valid value | decode failure / sentinel register |
 | `comms-lost` | The last value is retained, but the device stopped answering | device container stopped, Modbus timeout |
