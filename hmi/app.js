@@ -69,6 +69,18 @@ const POINTS = {
   energy_meter_energy_kW_h:        { slot: 'energy',      unit: 'kWh',  label: 'Energy register', decimals: 1, otel: 'energy.meter.energy' },
   energy_meter_temperature_celsius:{ slot: 'temperature', unit: '\u00b0C', label: 'Meter temperature', decimals: 1, otel: 'energy.meter.temperature' },
 
+  // --- the EVSEs and their sessions (M2, rural site) ---
+  // These are the only points in the table that come from an application rather than a
+  // device poller: the charge point speaks OCPP to the CSMS and Modbus to the meter, and
+  // emits semantic names directly. Quality still arrives the same way - `energy.quality`
+  // at the charge point, turned into `otel.data_point.quality` by the edge collector, so
+  // the box that goes comms-lost is the box that is drawn that way.
+  energy_evse_power_real_watts:        { slot: 'evse_power',   unit: 'W',   label: 'EVSE power',          decimals: 0, otel: 'energy.evse.power.real' },
+  energy_evse_current_offered_amperes: { slot: 'evse_offered', unit: 'A',   label: 'Current offered',     decimals: 1, otel: 'energy.evse.current.offered' },
+  energy_evse_voltage_volts:           { slot: 'evse_voltage', unit: 'V',   label: 'EVSE supply voltage', decimals: 1, otel: 'energy.evse.voltage' },
+  energy_evse_state_ratio:             { slot: 'evse_state',   unit: '',    label: 'EVSE state',          decimals: 0, otel: 'energy.evse.state', text: 'energy_evse_state_text' },
+  energy_session_energy_kW_h:          { slot: 'session_energy', unit: 'kWh', label: 'Session energy',    decimals: 3, otel: 'energy.session.energy' },
+
   // --- utility-scale PV inverter, AC side (M1b, solar site) ---
   energy_inverter_voltage_volts:      { slot: 'voltage',      unit: 'V',   label: 'AC voltage',      decimals: 1, otel: 'energy.inverter.voltage' },
   energy_inverter_voltage_line_volts: { slot: 'line_voltage', unit: 'V',   label: 'AC line voltage', decimals: 1, otel: 'energy.inverter.voltage.line' },
@@ -135,7 +147,7 @@ const POINTS = {
 };
 
 //: Slots whose value is a power in W and is drawn in kW on the one-line.
-const POWER_SLOTS = new Set(['power', 'power_s', 'power_q', 'dc_power', 'mppt_power']);
+const POWER_SLOTS = new Set(['power', 'power_s', 'power_q', 'dc_power', 'mppt_power', 'evse_power']);
 
 /* Site templates. The topology is drawn in full — an electrical engineer reads a one-line
    diagram, and hiding the switchgear would make the page look like a JSON viewer. Anything
@@ -230,13 +242,14 @@ async function prange(expr, seconds, step) {
 
 const num = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
 
-function keyOf(siteId, metric, phase, direction, mppt, plane, turbine) {
+function keyOf(siteId, metric, phase, direction, mppt, plane, turbine, evse) {
   // Direction is part of the identity: the site meter keeps separate import and export
   // registers, and keying without it silently loses one of them. The MPPT block number, the
-  // irradiance plane and the wind turbine number are part of it too - dropping them makes
-  // tracker 2 (or turbine 6) overwrite tracker 1 in a Map, which looks exactly like a
-  // working page.
-  return `${siteId}|${metric}|${phase || ''}|${direction || ''}|${mppt || ''}|${plane || ''}|${turbine || ''}`;
+  // irradiance plane, the wind turbine number and the EVSE id are part of it too - dropping
+  // them makes tracker 2 (or EVSE02, or session 2) overwrite the first in a Map, which looks
+  // exactly like a working page. Session energy is keyed by EVSE for the same reason: two
+  // EVSEs charging at once are two series, not one.
+  return `${siteId}|${metric}|${phase || ''}|${direction || ''}|${mppt || ''}|${plane || ''}|${turbine || ''}|${evse || ''}`;
 }
 
 async function refresh() {
@@ -246,7 +259,7 @@ async function refresh() {
       // Every site the pipeline has seen, whether or not it has instrumented points yet.
       pq('target_info{energy_site_id!=""}'),
       // Everything instrumented, every site, in one query.
-      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm)_.*",energy_site_id!=""}'),
+      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session)_.*",energy_site_id!=""}'),
     ]);
     state.error = null;
   } catch (e) {
@@ -283,7 +296,7 @@ async function refresh() {
     const def = POINTS[metric];
     if (!def) continue;
 
-    const k = keyOf(site.id, metric, m.energy_phase, m.energy_direction, m.energy_mppt, m.energy_irradiance_plane, m.energy_turbine);
+    const k = keyOf(site.id, metric, m.energy_phase, m.energy_direction, m.energy_mppt, m.energy_irradiance_plane, m.energy_turbine, m.energy_evse_id);
     const point = {
       metric,
       def,
@@ -292,6 +305,7 @@ async function refresh() {
       mppt: m.energy_mppt || null,
       plane: m.energy_irradiance_plane || null,
       turbine: m.energy_turbine || null,
+      evse: m.energy_evse_id || null,
       value: Number(s.value[1]),
       ts: Number(s.value[0]) * 1000,   // the store's sample time = the hub's receive time
       quality: m.otel_data_point_quality || 'unknown',
@@ -299,6 +313,15 @@ async function refresh() {
     };
     // Device time is shed before the visual store (see collector/hub/hub.yaml), so the
     // skew between the device clock and the hub is not available here by design.
+    //
+    // Newest wins. A restart mints a new service.instance.id, and a new OCPP transaction
+    // mints a new session-energy series, so the same key can be backed by more than one
+    // series for the staleness window (docs/findings.md #12). Without this rule the map kept
+    // whichever series Prometheus happened to return last, which for an idle EVSE was the
+    // pre-fix `comms-lost` copy. The store's sample time is the hub's receive time, so this
+    // is a comparison of two facts from one clock.
+    const existing = state.points.get(k);
+    if (existing && existing.ts > point.ts) continue;
     state.points.set(k, point);
   }
 
@@ -564,6 +587,7 @@ function bound(siteId, slot, phase, opts = {}) {
     if (opts.mppt !== undefined && (p.mppt || null) !== opts.mppt) continue;
     if (opts.plane !== undefined && (p.plane || null) !== opts.plane) continue;
     if (opts.turbine !== undefined && (p.turbine || null) !== opts.turbine) continue;
+    if (opts.evse !== undefined && (p.evse || null) !== opts.evse) continue;
     return p;
   }
   return null;
@@ -601,8 +625,8 @@ function gwhText(p) {
 
 /* A text-valued state (SunSpec status, curtailment reason) with the same quality treatment
    as a number. The edge collector attached the text; the view does not map code -> word. */
-function textOf(siteId, slot) {
-  const p = bound(siteId, slot);
+function textOf(siteId, slot, opts = {}) {
+  const p = bound(siteId, slot, null, opts);
   if (!p || !p.def.text) return { html: '<tspan class="val val-absent">\u2014</tspan>', quality: 'unknown', point: null };
   const text = p.labels[p.def.text];
   const q = pointState(p);
@@ -681,15 +705,28 @@ function renderMimic(site) {
   parts.push(`<text class="note" x="650" y="374" text-anchor="end">kW</text>`);
 
   // ---- EVSE taps, or the generation source ---------------------------------
+  // M2 fills these in from the pipeline. Each box is an OCPP charge point: its state is a
+  // real charge point status, its power is what it is actually delivering, and the
+  // offered current is the number that falls when the supply sags. Session energy is the
+  // only per-transaction series in the table, and it is why the box resets when the
+  // transaction ends rather than accumulating forever.
   if (tpl.evse) {
-    [730, 810].forEach((x, i) => {
-      const tag = `EVSE0${i + 1}`;
-      parts.push(`<line class="conductor-thin" x1="${x}" y1="${spine}" x2="${x}" y2="220"/>`);
-      parts.push(`<rect class="asset-off" x="${x - 33}" y="220" width="66" height="58"/>`);
-      parts.push(`<text class="tag" x="${x}" y="252" text-anchor="middle">${tag}</text>`);
+    ['EVSE01', 'EVSE02'].forEach((tag, i) => {
+      const x = 710 + i * 120;
+      const P = valueOf(site.id, 'evse_power', null, { evse: tag });
+      const A = valueOf(site.id, 'evse_offered', null, { evse: tag });
+      const E = valueOf(site.id, 'session_energy', null, { evse: tag });
+      const S = textOf(site.id, 'evse_state', { evse: tag });
+      const live = !!S.point;
+      parts.push(`<line class="conductor-thin" x1="${x}" y1="${spine}" x2="${x}" y2="206"/>`);
+      parts.push(`<rect class="${live ? 'asset' : 'asset-off'}" x="${x - 46}" y="206" width="92" height="44"/>`);
+      parts.push(`<text class="tag" x="${x}" y="234" text-anchor="middle">${tag}</text>`);
+      parts.push(`<text x="${x}" y="276" text-anchor="middle">${S.html}</text>`);
+      parts.push(`<text x="${x}" y="298" text-anchor="middle">${P.html}</text>`);
+      parts.push(`<text class="note" x="${x}" y="318" text-anchor="middle">offered ${A.html}</text>`);
+      parts.push(`<text class="note" x="${x}" y="336" text-anchor="middle">session ${E.html}</text>`);
     });
-    parts.push(`<text class="note note-absent" x="770" y="302" text-anchor="middle">no instrumented point yet</text>`);
-    parts.push(`<text class="note note-absent" x="770" y="322" text-anchor="middle">arrives with OCPP sessions (M2)</text>`);
+    parts.push(`<text class="note" x="770" y="366" text-anchor="middle">OCPP 1.6J \u00b7 one session, one trace</text>`);
   } else {
     const src = site.kind === 'wind_farm' ? 'WTG1..n' : 'PV arrays';
     const conv = site.kind === 'wind_farm' ? 'turbines' : 'INV1';
@@ -971,6 +1008,7 @@ function renderPoints(site) {
     // "unchanged" rather than "stale": a deadbanded register is quiet on purpose (D22).
     const unchanged = lag > LIVE_AGE_S ? `${fmtAge(lag)} unchanged` : 'now';
     const name = p.def.label
+      + (p.evse ? ` ${p.evse}` : '')
       + (p.phase ? ` ${p.phase}` : '')
       + (p.mppt ? ` MPPT ${p.mppt}` : '')
       + (p.turbine ? ` WTG ${p.turbine}` : '')

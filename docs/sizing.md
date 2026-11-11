@@ -5,11 +5,12 @@ arm64 only. Every number below was measured by running the stack. Re-run `make s
 change that affects the footprint and update this file.
 
 **Host:** Apple M2, 8 GB, arm64 (Docker Desktop, `arm64` images only).
-**Stack:** M1b part 2 — 3 edge collectors (rural, solar, wind), 1 hub, the impaired link,
-the rural SunSpec/Modbus meter + poller, the solar SunSpec/Modbus inverter + poller, and the
+**Stack:** M2 — 3 edge collectors (rural, solar, wind), 1 hub, the impaired link,
+the rural SunSpec/Modbus meter + poller, the solar SunSpec/Modbus inverter + poller, the
 wind farm's SunSpec-shaped 6-turbine device + poller (all three devices and all three pollers
-are the *same image*), plus the local visual stack (Prometheus, Jaeger, our own HMI).
-`telemetrygen` is gone from the default path.
+are the *same image*), the OCPP 1.6J charge point and CSMS test double in the rural OT zone,
+plus the local visual stack (Prometheus, Jaeger, our own HMI). `telemetrygen` is gone from the
+default path.
 
 ## Two numbers, and why both are here
 
@@ -49,6 +50,34 @@ Measured on `make up`, 2026-10-15, with all three generation/load sites real and
 | `jaeger` | trace store (v2 — itself an OTel collector distribution) | 12.5 MiB |
 | `hmi` | nginx serving the map + mimic | 3.9 MiB |
 | **Total** | | **≈749 MiB (0.73 GiB)** |
+
+### M2 delta, measured 2026-10-15 with `docker stats`
+
+The OCPP pair adds two containers and, more importantly, two new *kinds* of telemetry: a trace
+per session (15 spans for a 600 s session), a log line per OCPP frame (~12 per minute idle,
+more during a session), and five EVSE/session gauges. Measured on the full stack with a live
+session and a completed failed session:
+
+| Component | Purpose | `docker stats` |
+|---|---|---|
+| `csms` | OCPP 1.6J central system test double (WebSocket + in-memory transactions) | 27.5 MiB |
+| `ocpp-cp` | OCPP charge point; WebSocket client **and** Modbus client (supply voltage) | 36.6 MiB |
+| **M2 total** | | **≈832 MiB (0.81 GiB)** |
+
+That is +83 MiB for the pair, inside D10 with ~2.17 GB to spare. `edge-rural` grew from 44 MiB
+to ~217 MiB in the same run — not the OCPP pair: it is the disk-backed queue draining a backlog
+built up while the hub was down during the build, and it settles back once drained. Measure it
+again on a quiet stack before quoting it.
+
+The charge point is the larger of the two because it holds both an OTLP/HTTP exporter stack and
+a `pymodbus` client; the CSMS holds a websockets server and the transaction table.
+
+### The exemplar probe, and what it cost
+
+Testing whether Prometheus' OTLP receiver stores exemplars (D33) needed a second Prometheus, run
+standalone on the `noc` network and then removed. It is **not** part of the stack and adds
+nothing to the numbers above. The finding: metric stored, exemplar not returned — on 3.1.0 and
+on 3.8.1. See D33 for the three-step evidence.
 
 Budget headroom: ~2.25 GB. Adding the third site (one device, one poller, one edge collector)
 cost ~420 MiB on top of M1b part 1's 327 MiB, of which the three new containers are ~150 MiB
@@ -102,7 +131,7 @@ Two findings from the OTLP → Prometheus hop that any integrator will hit:
 - **Resource attributes do not land on series.** The receiver puts them on a synthetic
   `target_info` series and puts *datapoint* attributes on the series themselves. So
   `count by (__name__) ({energy_site_id=~".+"})` returned `target_info` and nothing else — the
-  edge collector's `energy.site.id` was never on a metric, and NEXT.md §4.2's "the map needs
+  edge collector's `energy.site.id` was never on a metric, and the M1a task specification's "the map needs
   nothing else" was false for Prometheus. The five bounded site attributes are now copied onto
   the data points at that boundary, so the map needs no `on(job) group_left` join.
 - **Metric names are mangled with their units.** `energy.meter.voltage` + UCUM unit `V` becomes
@@ -120,7 +149,7 @@ staleness window. It settles back. Not a leak, but it is why a single reading of
 |---|---|
 | poller → edge collector | ~195 metric points/min (was 1 106) |
 | edge → hub | batch per 2 s per site (`send_batch_size: 2048`, `timeout: 2s`) |
-| edge queue capacity | 5 000 batches per site; depth is in *batches*, not items (NEXT.md §7.6) |
+| edge queue capacity | 5 000 batches per site; depth is in *batches*, not items (docs/findings.md #7) |
 | 30 s rural outage | ~15 batches accumulated, drained to 0 on restore |
 
 The poller's report rate is 195 points/min for 28 real points because the scan is 1 Hz, reporting
@@ -239,7 +268,7 @@ bind fails quietly — `docker compose port prometheus` printed nothing while th
 reported a mapping — and connections to `127.0.0.1:9090` then hang forever against the tunnel.
 So: Prometheus publishes no host port (`make prom Q='…'` reads it through the `ops` box, like
 `make queues`), and the UIs run on overridable free ports (HMI `8091`, Jaeger `16687`).
-Also recorded in NEXT.md §7.4 for port 8888.
+Also recorded in docs/findings.md #32 for port 8888.
 
 ## Not yet measured
 

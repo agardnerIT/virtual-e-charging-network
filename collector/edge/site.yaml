@@ -31,7 +31,7 @@ processors:
       - { key: otel.collector.role,       value: "edge",             action: upsert }
 
   # ------------------------------------------------------------------------------------
-  # THE NORMALISATION CHAIN (NEXT.md 4.3): names and units, then quality, then timestamps.
+  # THE NORMALISATION CHAIN (plan.md D20, D21): names and units, then quality, then timestamps.
   # Deadband is upstream, in the poller - see the note at the bottom of this file.
   # ------------------------------------------------------------------------------------
   transform/meter:
@@ -86,7 +86,7 @@ processors:
       # StatusCode). OTel does not.
       #
       # Timestamps: "the device says it happened then, I observed it now". OTLP metrics have no
-      # per-data-point receive-time field. The plan's working default (NEXT.md 4.3.3) is that the
+      # per-data-point receive-time field. The plan's working default (plan.md D23) is that the
       # metric's own timestamp *is* the collector's receive time - but 0.130's transform processor
       # accepts `set(time_unix_nano, Now())` and silently ignores it (verified against the pinned
       # image, not assumed). So the collector stamps its receive time as an attribute instead, and

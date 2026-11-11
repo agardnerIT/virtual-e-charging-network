@@ -33,7 +33,7 @@ processors:
   # *datapoint* attribute becomes a series label, but a *resource* attribute goes to the
   # synthetic `target_info` series and does not appear on the data at all. Verified against
   # the pinned version, not assumed: `count by (__name__) ({energy_site_id=~".+"})` returns
-  # target_info and nothing else. So NEXT.md 4.2's claim - "the edge collector already stamps
+  # target_info and nothing else. So the plan's claim - "the edge collector already stamps
   # energy.site.id ... the map needs nothing else" - held for OTLP but not for Prometheus,
   # and any backend that flattens attributes into series identity needs the join.
   # Rather than force every consumer into a `on(job) group_left` join, the five bounded,

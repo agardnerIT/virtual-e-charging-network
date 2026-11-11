@@ -12,7 +12,7 @@ There is no Modbus receiver in OpenTelemetry core or contrib, so something has t
 protocol (D19). This poller is that something, and it stays as dumb as it can:
 
 * it reads registers and applies the device's own scale factors and word order - because
-  only the device-facing code can know them, and because the plan (NEXT.md 4.2) puts them
+  only the device-facing code can know them, and because the plan (plan.md D20) puts them
   here;
 * it emits metric names that are still the *device's* names (``modbus.register.vpha``) and
   unit ``1``, with the raw integer and the scale factor carried as attributes;
@@ -49,7 +49,7 @@ LOG = logging.getLogger("poller")
 #: Deadband per quantity group. This is the OT answer to metric cardinality: a value that
 #: moves less than this is not worth a data point. It lives in the poller because the
 #: collector has no stateful deadband processor (contrib has filter, but nothing that
-#: compares the current value with the last one). See NEXT.md 4.3.4 and plan.md 11.
+#: compares the current value with the last one). See plan.md D22 and §11.
 DEADBAND = {
     "voltage": 0.3,        # V   - well below a sag, well above sensor noise
     "current": 0.05,       # A

@@ -10,15 +10,15 @@
 #   make link      degrade a site's link:   make link SITE=wind PROFILE=down
 #   make clean     stop and delete everything, including buffered telemetry
 #
-#   SOLAR_CLOCK_HOUR=12 make up   pin the solar sim to a daytime hour (see NEXT.md)
+#   SOLAR_CLOCK_HOUR=12 make up   pin the solar sim to a daytime hour (see docs/findings.md)
 #
-# See NEXT.md for the current work item and plan.md for the decisions.
+# See NEXT.md for the current milestone and plan.md for the decisions.
 
 COMPOSE := docker compose -f compose/docker-compose.yml
 TOXIPROXY ?= http://localhost:8474
 
 # Host ports for the two UIs. Both defaults avoid ports this machine already holds
-# (see NEXT.md 7.4 and the note in compose/docker-compose.yml).
+# (see docs/findings.md #32 and the note in compose/docker-compose.yml).
 HMI_PORT ?= 8091
 JAEGER_PORT ?= 16687
 
@@ -27,7 +27,8 @@ JAEGER_PORT ?= 16687
 SOLAR_CLOCK_HOUR ?=
 
 .PHONY: up down ps logs stats queues link fault fault-status profiles clean queue-detail \
-	device-logs poller-logs visual prom hmi curtail
+	device-logs poller-logs visual prom hmi curtail \
+	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
 up:
 	SOLAR_CLOCK_HOUR=$(SOLAR_CLOCK_HOUR) HMI_PORT=$(HMI_PORT) JAEGER_PORT=$(JAEGER_PORT) $(COMPOSE) up -d
@@ -94,6 +95,62 @@ fault-status:
 PCT ?= 60
 curtail:
 	@$(COMPOSE) exec -T device-$(SITE) python site/faultctl.py curtail --pct $(PCT)
+
+# ---------------------------------------------------------------------------------
+# M2: a charging session is a trace. Control of the OCPP charge point is exec-only for
+# the same reason `make fault` is: the rural OT zone publishes no ports (plan.md §5.4,
+# docs/findings.md #32). The CP reads supply voltage from device-rural over Modbus, so one
+# `make fault` produces the whole spine: sag -> derate -> failed session.
+# ---------------------------------------------------------------------------------
+EVSE ?= EVSE01
+# Default exemplar query: the EVSE power data point the sag samples carry an exemplar on.
+Q ?= energy_evse_power_real_watts
+
+# Start a session on demand (EVSE01 already runs one by default, so this is mainly for
+# EVSE02, or for a demo that wants a fresh transaction).
+session:
+	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py start --evse $(EVSE)
+
+session-stop:
+	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py stop --evse $(EVSE)
+
+session-status:
+	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py status
+
+# The narrative spine in one command: start a session, sag the supply, watch the EVSE
+# derate, then sag it past the contactor-drop threshold and watch the transaction fail for
+# PowerLoss. Two depths of the SAME fault - no second injection point, no authored
+# causality: the charge point is reacting to the meter it can see.
+spine:
+	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py start --evse $(EVSE)
+	@sleep 3
+	@echo "-- 0.88 pu: inside the band, charger derates but keeps charging --"
+	@$(MAKE) --no-print-directory fault SITE=rural FAULT=voltage-sag \
+	  ARGS="--depth 0.88 --duration 25"
+	@for i in 1 2 3 4; do \
+	  $(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py status; sleep 2; \
+	done
+	@echo "-- 0.78 pu: below the contactor threshold, session ends for PowerLoss --"
+	@$(MAKE) --no-print-directory fault SITE=rural FAULT=voltage-sag \
+	  ARGS="--depth 0.78 --duration 15"
+	@$(COMPOSE) exec -T ocpp-cp python ocpp/cpctl.py watch --evse $(EVSE) --seconds 60
+
+# Did the exemplar survive the collector chain and Prometheus' OTLP receiver? Ask the
+# store. A non-empty result is the M2 payoff: a metric data point that jumps to the
+# session trace. An empty one is a finding to write down, not a thing to fake.
+exemplar:
+	@start=$$(python3 -c 'import time; print(int(time.time()) - 1800)'); \
+	enc=$$(Q='$(Q)' python3 -c 'import os, urllib.parse; print(urllib.parse.quote(os.environ["Q"]))'); \
+	end=$$(python3 -c 'import time; print(int(time.time()) + 1)'); \
+	$(COMPOSE) exec -T ops wget -qO- \
+	  "http://prometheus:9090/api/v1/query_exemplars?query=$$enc&start=$$start&end=$$end" \
+	  | python3 -m json.tool
+
+ocpp-logs:
+	$(COMPOSE) logs -f --no-log-prefix ocpp-cp
+
+csms-logs:
+	$(COMPOSE) logs -f --no-log-prefix csms
 
 device-logs:
 	$(COMPOSE) logs -f device-$(SITE)

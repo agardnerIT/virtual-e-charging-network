@@ -232,7 +232,7 @@ class Csms:
             LOG.warning("OCPP %s %s tx=%s reason=PowerLoss - session failed",
                         direction, action, tx_id, extra=extra)
         else:
-            LOG.info("OCPP %s %s %s", direction, action, extra=extra)
+            LOG.info("OCPP %s %s", direction, action, extra=extra)
 
     # -- handlers ----------------------------------------------------------------------
     def _authorize(self, cp_id: str, payload: dict) -> dict:

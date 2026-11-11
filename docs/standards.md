@@ -108,7 +108,43 @@ connection point is, and differs from the machine sum by collector and transform
 | Solar DC/AC ratio | 5300 kWp / 4200 kVA = 1.26 | Design choice, deliberately high enough to clip |
 | Wind farm export limit | 15 MW | Modelled connection cap |
 
-## 5. Things this repo does **not** claim
+## 5. OCPP 1.6J (M2)
+
+The charge point (`sim/ocpp/cp.py`) is a client; the CSMS (`sim/ocpp/csms.py`) is a test double. Both
+speak the **JSON binding**, because 1.6S needs an XML stack for no benefit and 1.6J is what is deployed.
+
+### Implemented, message by message
+
+| Action | Direction | What is real |
+|---|---|---|
+| `BootNotification` | CP → CSMS | Real registration, real `Accepted` + `currentTime` + heartbeat interval. The CSMS keeps a charge-point registry. |
+| `Heartbeat` | CP → CSMS | Answered with the CSMS clock. (The CP does not run the timer in this build; the exchange is implemented so a CSMS can demand it.) |
+| `StatusNotification` | CP → CSMS | Per connector, for `Available` / `Preparing` / `Charging` / `Finishing`. `errorCode` is carried, always `NoError` today. |
+| `Authorize` | CP → CSMS | Real `idTagInfo.status`; a configured deny-list returns `Blocked` and the session never starts. |
+| `StartTransaction` | CP → CSMS | Real `transactionId` allocation, `meterStart` in Wh, `timestamp`, `idTagInfo`. A rejected idTag returns transaction 0. |
+| `MeterValues` | CP → CSMS | Every 10 s with `Energy.Active.Import.Register` (Wh), `Power.Active.Import` (W), `Current.Offered` (A) and `Voltage` (V), each with `measurand`/`unit`/`context`. |
+| `StopTransaction` | CP → CSMS | `meterStop`, `timestamp` and a real `reason`: `Local` or `PowerLoss`. |
+| `DataTransfer` | CP → CSMS | Answered `Accepted`; no payload semantics claimed. |
+| inbound CALL (any) | CSMS → CP | Answered `CALLERROR NotSupported`. No CSMS-initiated control is claimed. |
+
+The frame codec (`ocpp16.py`) is shared by both ends, so the encoder and decoder cannot drift — the same
+rule that makes `sunspec.py` shared by device and poller.
+
+### Deliberately not claimed
+
+- **Security profiles / TLS / client certificates.** The WebSocket is plain `ws://` inside the OT zone.
+- **Smart charging** (charging profiles, `SetChargingProfile`, load balancing). The derate is the charge
+  point's own response to supply voltage, not an OCPP profile.
+- **Firmware management, diagnostics, reservations, local auth lists, OCPI, ISO 15118 / Plug & Charge.**
+- **Persistence.** The CSMS is in-memory by design (D34); a restart forgets transactions.
+- **OCPP conformance.** This is a subset, labelled a subset, exercised by one charge point.
+
+The derate curve is ours, not OCPP's: at or above **0.94 pu** the EVSE offers nameplate (32 A); at or
+below **0.80 pu** it offers nothing; in between it is linear. 0.94 pu is the AS 60038 lower utilisation
+limit (216 V of 230 V); 0.80 pu is where a contactor drops out. Below 0.80 pu for **3 s** the transaction
+ends for `PowerLoss`.
+
+## 6. Things this repo does **not** claim
 
 - IEC 61850 (MMS/GOOSE/SV), DNP3, IEC 60870-5-104, DLMS/COSEM, OPC UA — documented as
   mappings only (plan.md §2, D4).
@@ -116,3 +152,4 @@ connection point is, and differs from the machine sum by collector and transform
   Modbus/SunSpec-shaped, which is what D4 allows and what this file exists to say.
 - SunSpec *conformance*. Subsets are labelled subsets.
 - Real market settlement, real protection settings, real ISO 15118 / OCPP protocol depth.
+- OCPP conformance of any kind — §5 lists what is implemented and what is not.

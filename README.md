@@ -7,13 +7,13 @@ The point is not the electricity. The point is that **OpenTelemetry is useful fa
 monitoring** — and that the OpenTelemetry Collector is the natural boundary between operational
 technology (OT) and IT.
 
-Status: **M1b complete** — the collector topology runs (M0), three sites carry real OT data on one
+Status: **M2 complete** — the collector topology runs (M0), three sites carry real OT data on one
 device image (a SunSpec meter, a SunSpec inverter with two MPPT trackers, and a six-turbine wind
-farm), and there is a visual layer fed from the pipeline: a map of Australia with every site's live
-state, drilling down to a one-line mimic per site. Decisions and roadmap live in
-[`plan.md`](plan.md); domain background in [`docs/ot-primer.md`](docs/ot-primer.md); which standard
-each device claims, and how faithfully, in [`docs/standards.md`](docs/standards.md); measured numbers
-in [`docs/sizing.md`](docs/sizing.md); the current work item is [`NEXT.md`](NEXT.md).
+farm), a **charging session is a trace** (M2), and there is a visual layer fed from the pipeline: a
+map of Australia with every site's live state, drilling down to a one-line mimic per site. Decisions
+and roadmap live in [`plan.md`](plan.md); domain background in [`docs/ot-primer.md`](docs/ot-primer.md);
+which standard each device and protocol claims, and how faithfully, in [`docs/standards.md`](docs/standards.md);
+measured numbers in [`docs/sizing.md`](docs/sizing.md); hard-won gotchas in [`docs/findings.md`](docs/findings.md); work items are tracked as [GitHub issues](https://github.com/agardnerIT/virtual-e-charging-network/issues?q=is%3Aissue), with the current milestone in [`NEXT.md`](NEXT.md).
 
 ![Telemetry architecture](docs/architecture.png)
 
@@ -25,9 +25,11 @@ are regenerated from it. Solid borders are running today, dashed are planned.
 ```
 make up        # the whole stack, ending in a picture: http://127.0.0.1:8091
 make logs      # follow the hub: this is where every site's telemetry lands
-make stats     # CPU/RAM of the whole stack (~750 MiB, three sites)
+make stats     # CPU/RAM of the whole stack (~830 MiB, three sites, two OCPP containers)
 make queues    # are the edge disk queues draining
 make hmi       # open the map
+make session-status   # the charge point: supply voltage, both EVSEs, live transaction
+make spine     # voltage sag -> charger derate -> failed session, in one command
 make prom Q='count by (__name__) ({__name__=~"energy.*"})'   # PromQL, through the ops box
 make clean     # stop and delete everything, including buffered telemetry
 ```
@@ -109,6 +111,52 @@ make curtail SITE=solar PCT=60     # operator curtailment, distinct from inverte
 make up SOLAR_CLOCK_HOUR=12        # force a daytime solar curve for a demo that runs at night
 ```
 
+## A charging session is a trace (M2)
+
+```
+   [SunSpec/Modbus meter]  <-poll--  [charge point]  --OCPP 1.6J/WS-->  [CSMS test double]
+        device-rural                    ocpp-cp                        csms
+                                            |
+                                            +--OTLP/HTTP-->  [edge-rural] --> hub
+```
+
+The charge point is the only process here that is both an OCPP client and a Modbus client, and that
+is the point. It reads the site meter's phase voltages over Modbus, so when
+`make fault SITE=rural FAULT=voltage-sag` moves a register it **measures** the sag and reacts to it:
+offered current falls along a linear derate between 0.94 pu and 0.80 pu, and below 0.80 pu for three
+seconds the transaction ends for `PowerLoss`. Nothing in the telemetry is authored causality.
+
+One session is one trace, owned by the charge point:
+
+```
+ocpp.session                 root — ocpp.stop.reason=PowerLoss, energy.session.energy_kwh
+├── ocpp.authorize
+├── ocpp.start_transaction   ocpp.transaction.id allocated here
+├── ocpp.meter_values        every 10 s, carrying energy, power, offered current
+├── energy.voltage_sag       starts below 0.94 pu; ends on recovery or when the session fails
+└── ocpp.stop_transaction    reason=Local or PowerLoss
+```
+
+`BootNotification` and the connector `StatusNotification`s are a *separate* short trace: a boot is a
+property of the charge point's connection, not of a transaction. OCPP frames are logs — the charge
+point's copies carry the session's `trace_id`, and the CSMS's copies are joined by
+`ocpp.transaction.id` because OCPP 1.6 has nowhere to put a `traceparent`. That limitation is written
+up in `docs/standards.md` rather than papered over.
+
+```bash
+make session-status     # supply 229/230/231 V (1.00 pu) | EVSE01 Charging 21.6 kW offered 32.0 A
+make spine              # 0.88 pu: 21.6 -> 10.3 kW; 0.78 pu: 0 A, then the session fails
+make exemplar          # asks Prometheus for exemplars. It answers [] — see below.
+```
+
+**The exemplar leg is a finding, not a feature.** A metric exemplar that jumps from the sag's data
+point to its session trace is wired end to end: the charge point stashes the span context on every
+observation, and the OTel SDK puts the `trace_id` and `span_id` in the OTLP payload (both verified by
+decoding the request body). Prometheus' OTLP receiver stores the metric and **drops the exemplar** —
+measured on 3.1.0 and 3.8.1, with the collectors bypassed. The join that works today is
+`ocpp.transaction.id`, which is on the span, on every OCPP log line and on `energy.session.energy`.
+See plan.md D33.
+
 ## What the pipeline shows
 
 - **Two layers, and only two** (D16). Edge collectors fan in to one hub — the standard OTel
@@ -136,7 +184,9 @@ origin and never talks to the store directly.
   wind farm is six turbines on a collector bus → step-up → grid. There is no per-phase real power on
   the inverter (model 103 only carries total W), so the diagram shows the total rather than
   multiplying V by I and calling it a measurement. Equipment with no instrumented point is drawn
-  dashed and labelled, never filled with a plausible number.
+  dashed and labelled, never filled with a plausible number. At the rural site the two EVSE boxes
+  are live (M2): charge point state, kW, offered current and session energy, rendered with the same
+  quality treatment as every other value, so an EVSE that goes `comms-lost` looks it.
 - **Quality is shown at the value**, not in a legend, and stale is never drawn as live. Note what is
   deliberately *not* treated as staleness: a value that simply has not changed. The poller deadbands
   — about a third of readings never leave the site — so freshness and trust are different questions.
@@ -149,13 +199,14 @@ the voltage sag is meant to be watched on.
 
 ```
 plan.md                  decisions log + roadmap (source of truth)
-NEXT.md                  the current work item
+NEXT.md                  the current milestone; work items live in GitHub issues
 docs/ot-primer.md        electrical/OT primer for people who came from IT
 docs/standards.md        which spec each device claims, and how faithfully
 docs/sizing.md           measured RAM/disk, the arm64/image audit, and the visual-stack bake-off
 sim/sunspec.py           the SunSpec-shaped register maps, shared by every device and the poller
 sim/site/                the Modbus TCP devices (meter, PV inverter, wind farm) + control endpoints
 sim/poller/              the Modbus -> OTLP poller (one image, any register map)
+sim/ocpp/                OCPP 1.6J charge point + CSMS test double (frame codec shared by both)
 collector/edge/          one config, parameterised by environment, for every site
 collector/hub/           hub pipeline: receive, shed for the local store, fan out
 hmi/                     the map and the one-line mimic (static files, no build step)
@@ -167,7 +218,10 @@ Makefile
 
 ## Where this is going
 
-Thin end-to-end first, then thick (plan.md §9). M1 is complete: a voltage sag on a weak rural feeder
-is real, and so are both generation regimes. **M2** makes the last leg of the narrative real — OCPP
-sessions as traces, with a metric exemplar joining the sag to the failed session — at which point a
-reader can follow one PQ event from a millisecond-class disturbance to an application error.
+Thin end-to-end first, then thick (plan.md §9). M1 made the voltage sag and both generation regimes
+real. **M2 is complete**: a charging session is one trace, the charge point measures the sag over
+Modbus and fails the transaction for `PowerLoss`, OCPP frames are trace-correlated logs, and the
+rural mimic's EVSEs are live. The metric-exemplar leg is emitted and carried but not stored by
+Prometheus — a measured finding (D33), not a claim. **M3** adds the hard cases: a metro depot with
+concurrent sessions, an isolated microgrid, a multi-hour store-and-forward outage measured rather
+than projected, and a clock-skew demo where an effect appears before its cause.

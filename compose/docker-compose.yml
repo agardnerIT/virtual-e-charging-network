@@ -128,7 +128,7 @@ services:
       - prometheus-data:/prometheus
     # Deliberately publishes no host port. Port 9090 is already held on this machine by an
     # unrelated ssh port-forward, and a silently-unbound Docker mapping is exactly the trap
-    # NEXT.md 7.4 records for 8888. `make prom Q='...'` queries it through the ops box on the
+    # docs/findings.md #32 records for 8888. `make prom Q='...'` queries it through the ops box on the
     # compose network instead - the same OTel-native habit as `make queues`.
     networks: [noc]
 
@@ -238,6 +238,56 @@ services:
       OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
       NOMINAL_VOLTAGE: "230"
     depends_on: [device-rural, edge-rural]
+    networks: [ot-rural]
+
+  # ---- M2: the OCPP pair, both in the rural OT zone --------------------------------
+  # A charging session is a trace. The charge point is the only process here that is both
+  # an OCPP client and a Modbus client: it reads supply voltage from device-rural and
+  # reports what it did about a sag over OCPP, so sag -> derate -> failed session is one
+  # injection and a real reaction, not authored causality.
+  #
+  # The CSMS is a protocol-real test double, not SteVe + MySQL: D10's 3 GB budget and
+  # plan.md §8 rule out a JVM and a database as the default. It speaks real OCPP 1.6J
+  # (WebSocket, subprotocol ocpp1.6, real transactions) and keeps them in memory.
+  csms:
+    <<: *sim
+    command: ["python", "ocpp/csms.py"]
+    environment:
+      CSMS_PORT: "9000"
+      HTTP_PORT: "9001"
+      CSMS_ID: csms-rural-01
+      OTLP_ENDPOINT: "http://edge-rural:4318"
+      CSMS_BLOCKED_ID_TAGS: "BLOCKED-0000"
+      CSMS_HEARTBEAT_INTERVAL_S: "60"
+    depends_on: [edge-rural]
+    networks: [ot-rural]
+
+  ocpp-cp:
+    <<: *sim
+    command: ["python", "ocpp/cp.py"]
+    environment:
+      CP_ID: EVSE-RURAL-01
+      CP_MODEL: VECN SIM-AC22
+      CP_EVSE_COUNT: "2"
+      CSMS_URL: "ws://csms:9000/ocpp/EVSE-RURAL-01"
+      HTTP_PORT: "8080"
+      # The supply-voltage input: the same site meter and the same shared register map as
+      # the poller. No second fault-injection point (M2-4).
+      SUPPLY_MODBUS_HOST: device-rural
+      SUPPLY_MODBUS_PORT: "5020"
+      SUPPLY_MODBUS_UNIT_ID: "1"
+      SUPPLY_POLL_INTERVAL_MS: "1000"
+      OTLP_ENDPOINT: "http://edge-rural:4318"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+      # Expo defaults: one live session on EVSE01, restarted after a gap so the demo
+      # repeats; 10 s MeterValues is the OCPP clock a CSMS actually configures.
+      CP_AUTO_EVSE: EVSE01
+      CP_SESSION_DURATION_S: "600"
+      CP_IDLE_GAP_S: "20"
+      CP_METER_INTERVAL_S: "10"
+    depends_on: [device-rural, csms, edge-rural]
+    # No host port: the OT zone stays unreachable from outside, so `make session` and
+    # `make spine` exec in, exactly like `make fault` does for the device.
     networks: [ot-rural]
 
   # ---- solar farm: utility-scale generation (OT zone) ----------------------------

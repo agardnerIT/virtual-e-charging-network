@@ -1,0 +1,179 @@
+# Findings — the things that cost an hour
+
+Every entry here was learned by running the stack, not by reading about it. They are kept in the
+repository (rather than in an issue tracker) because they are reference material: the next person
+hits them while debugging, not while planning.
+
+Grouped by area. Each entry says **what happened** and **what to do**, and where the detail lives in
+code or config.
+
+---
+
+## OpenTelemetry Collector
+
+1. **`otel/opentelemetry-collector-contrib:0.116.0` is broken on arm64.** The image is published
+   empty and fails with `exec /otelcol-contrib: no such file or directory`. **0.130.0 is pinned and
+   works.** Verify any new pin with `docker manifest inspect` *and* by running it.
+
+2. **The collector images are distroless — there is no shell.** Do not plan to `exec` in. Read a
+   collector's own telemetry from the `ops` container over HTTP instead; that is what `make queues`
+   and `make prom` do, and it is the OTel-native way anyway.
+
+3. **`file_storage` needs `create_directory: true`,** and the edge collector services run
+   `user: "0:0"` because the disk-backed queue is a root-owned volume.
+
+4. **`set(time_unix_nano, Now())` is a silent no-op in 0.130.0.** The transform processor accepts it
+   and ignores it. Hence the receive time rides as a datapoint attribute (`energy.receive.timestamp`)
+   — plan.md D23.
+
+5. **`groupbyattrs` merges metrics that share name + resource + scope.** Datapoint attributes
+   survive; that is what turns per-phase points into one metric with N data points.
+
+6. **A plain YAML scalar breaks on `: ` inside an OTTL string.** Quote it or reword the string.
+
+7. **`otelcol_exporter_queue_size` counts batches, not items,** and 0.130 normalises metric names
+   with double underscores. Match on prefix.
+
+8. **`collector/edge/site.yaml` is shared by every site.** Anything site-specific must degrade
+   cleanly when the env var or the device is absent — a statement that does not match simply does
+   nothing, which is the design (plan.md D16).
+
+---
+
+## Prometheus and the visual stack
+
+9. **Prometheus flattens a datapoint attribute into series identity.** An attribute whose value
+   changes every poll does not describe a series — it mints a new one. Measured: 4 532 `energy_*`
+   series in 15 minutes from one meter. Payload attributes are shed at the Prometheus boundary only
+   (plan.md D25, `collector/hub/hub.yaml`).
+
+10. **Resource attributes do not land on Prometheus data.** They go to the synthetic `target_info`
+    series. The five bounded site attributes are copied resource → datapoint at the Prometheus
+    boundary so the map works without a join (plan.md D25).
+
+11. **Prometheus mangles metric names with their units.** `energy.meter.voltage` + `V` →
+    `energy_meter_voltage_volts`; `m/s` → `meters_per_second`; `%` → `percent`; `1` → `ratio`;
+    `kW.h` → `kW_h`. The mapping lives in one place: `POINTS` in `hmi/app.js`.
+
+12. **A restart mints a new `service.instance.id`,** hence a new series set, with the old one
+    lingering for the 5-minute staleness window. Never compare `prometheus_tsdb_head_series` across
+    a restart, and make any consumer pick a winner explicitly (the HMI keeps the newer sample).
+
+13. **Prometheus' OTLP receiver does not ingest OTLP exemplars.** Verified on 3.1.0 and 3.8.1 with
+    the collectors bypassed: the metric is stored, `/api/v1/query_exemplars` returns `[]`. The SDK
+    does emit them and the OTLP body does carry them — decode the request before blaming the SDK.
+    plan.md D33. The working join is `ocpp.transaction.id`.
+
+14. **`jaeger:2.19.0` ships no config file.** Mount one (`--config /etc/jaeger/config.yaml`).
+
+15. **Do not mount a whole directory over `/etc/perses`.** Mount the config file and the
+    provisioning folder only — the image keeps its CUE schemas there.
+
+16. **Do not screenshot the HMI with Chrome's `--virtual-time-budget`.** It virtualises `Date.now()`
+    and every site renders as stale. Use Playwright with a real clock and `domcontentloaded`, not
+    `networkidle` (the page polls every 2 s, so the network is never idle).
+
+17. **Playwright's bundled Chromium may not match the installed version.** Point `CHROME_PATH` at
+    the cached `~/Library/Caches/ms-playwright/chromium_headless_shell-<build>/chrome-headless-shell-mac-arm64/chrome-headless-shell`.
+
+---
+
+## Modbus and the devices
+
+18. **Modbus function 03 reads at most 125 registers (0x7D).** The meter image (118) fit in one read;
+    the inverter (142) and wind farm (187) do not. A too-large read is an *invalid request* and the
+    device answers with an exception, so the poller chunks at ≤120. The original failure was silent
+    because the poller only logged after 30 *successful* polls; it now logs the first failure and
+    every 30th.
+
+19. **`value_int` is 0 for a double-valued gauge.** OTTL's `value_int` only means anything for int
+    datapoints; these gauges are doubles. Use `value_double`. (`resource.attributes[...]` *is*
+    available in the metric context.)
+
+20. **Modbus carries no time.** The device exposes a vendor `UnixTime` register; that is the only
+    way a Modbus device can claim when a sample happened.
+
+21. **A free random walk will park on its clamp.** The wind model's first cut wandered to the
+    2 m/s clamp and the farm idled for minutes. Use a mean-reverting (Ornstein–Uhlenbeck) walk.
+
+22. **Sensor noise must be gated by the physical driver.** Gaussian noise on irradiance leaked
+    through the DC model and the solar farm generated a few kW at 2am. If the sun is down,
+    irradiance is exactly zero.
+
+23. **pymodbus 3.16 replaced the classic datastore API.** Use `SimData`/`SimDevice`; the
+    `SimDevice(action=…)` hook runs on every read. The client parameter is `device_id`, not
+    `slave`/`unit`.
+
+---
+
+## The Python OTel SDK
+
+24. **Repeating a metric name in `create_observable_gauge` drops later callbacks.** The SDK returns
+    the same instrument for a repeated name and silently ignores the second callback set. Group
+    points by metric name first, then pass every callback to one instrument. Symptom: MPPT tracker 2
+    vanished.
+
+25. **`Observation(value, attributes, context)` accepts a context, and that is how exemplars are
+    attached.** With the default `TraceBasedExemplarFilter`, set the context to a sampled span.
+    Verified in `sim/ocpp/cp.py` (the sag span context is stashed on every sample).
+
+26. **Log records carry the current span's `trace_id`/`span_id` automatically**, via
+    `LoggingHandler`. Verified on the exported OTLP log record. This is how OCPP frame logs are
+    correlated to the session trace.
+
+---
+
+## OCPP (M2)
+
+27. **Awaiting a request/response handshake before entering the socket read loop deadlocks.** The
+    only reader is behind the await. Start the reader as a task first, then hand-shake —
+    `OcppClient.run()` in `sim/ocpp/cp.py`.
+
+28. **`extra=` is not a positional argument.** `LOG.info("... %s %s %s", a, b, extra=e)` raises at
+    *log* time (not import time), so it survived startup and killed the connection. It was in both
+    `csms.py` and `cp.py`.
+
+29. **A session root span lands last.** Mid-session, Jaeger shows children whose parent is not in
+    the trace yet, because the root only ends when the transaction does. That is correct batching.
+    Do not "fix" it by ending the root early; demo on a completed session.
+
+30. **An idle EVSE is not `comms-lost`.** A site-wide measurement must be refreshed for every entity
+    on every collection, not only for the one with a transaction.
+
+31. **Do not restart a session into a live sag.** Wait the idle gap *and* supply recovery, or a 20 s
+    sag produces three failed transactions and three alarms.
+
+---
+
+## This host
+
+32. **An unrelated `ssh` port-forward holds `4317`, `8889`, `9090`, `16686` and `8090`.** A Docker
+    port mapping that cannot bind fails *quietly*. Prometheus publishes no host port; the UIs are on
+    overridable free ports (HMI `8091`, Jaeger `16687`).
+
+33. **Mounting scratch config files from `/tmp` fails on this host** (`/tmp` is a symlink). Put them
+    under the repo.
+
+34. **`docker compose exec` into a container that is being recreated can hang.** Bound the wait;
+    do not loop forever.
+
+35. **Read `/proc/1/status` (`VmRSS`) as well as `docker stats`.** They disagree by ~20%, and
+    `docker stats` is the number plan.md D10 gates on. See `docs/sizing.md`.
+
+---
+
+## Process findings
+
+36. **toxiproxy restore is not `POST toxics -d '[]'`.** Delete each toxic and re-enable the proxy —
+    `impairment/link.sh` does it correctly.
+
+37. **Always bound a host-side network client** (`curl --max-time`, `urlopen(..., timeout=)`).
+
+38. **`make prom` must URL-encode on the host.** The `ops` box is alpine and has no `python3`; the
+    target once depended on a package nobody installed.
+
+39. **Verify an image tag exists before you trust a pin:** `docker manifest inspect <image>`, then
+    run it. A published tag is not a working arm64 image (see #1).
+
+40. **An unused build dependency is still a broken pin.** `x-generator` is kept but profiled; if
+    `telemetrygen` is ever used again, remember its image has no shell and every metric is `gen`.

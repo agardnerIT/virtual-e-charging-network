@@ -10,3 +10,6 @@ opentelemetry-sdk==1.45.1
 # It also keeps the option open on the far side of the WAN: OTLP/HTTP traverses field-network
 # proxies and NAT more predictably than HTTP/2, should the edge->hub hop ever move.
 opentelemetry-exporter-otlp-proto-http==1.45.1
+# OCPP 1.6J over WebSocket (M2). Pure Python, arm64-safe; the modern asyncio API is used
+# (websockets.asyncio.server / .client), not the legacy decorator API.
+websockets==15.0.1

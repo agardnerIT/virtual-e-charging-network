@@ -56,7 +56,7 @@ def _envi(name: str, default: int) -> int:
 
 
 # --------------------------------------------------------------------------------------
-# The fault: one voltage sag. Deliberately not a framework (NEXT.md 4.4).
+# The fault: one voltage sag. Deliberately not a framework (plan.md D29).
 # --------------------------------------------------------------------------------------
 @dataclass
 class FaultState:

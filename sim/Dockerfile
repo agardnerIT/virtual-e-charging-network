@@ -20,3 +20,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY sunspec.py ./
 COPY site/ ./site/
 COPY poller/ ./poller/
+COPY ocpp/ ./ocpp/
