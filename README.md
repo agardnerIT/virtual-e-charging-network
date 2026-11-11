@@ -152,7 +152,7 @@ The rest is in the [`Makefile`](Makefile); the measurement harnesses (`outage-me
 | [`docs/sites/`](docs/sites) | [`rural`](docs/sites/rural.md) scaling, deadband, the sag · [`generation`](docs/sites/generation.md) clipping, cube law · [`metro`](docs/sites/metro.md) twelve bays · [`microgrid`](docs/sites/microgrid.md) why frequency moves |
 | [`docs/ot-primer.md`](docs/ot-primer.md) · [`docs/standards.md`](docs/standards.md) | the electrical side for IT people, including the clock problem · which spec each device claims, and how faithfully |
 | [`docs/sizing.md`](docs/sizing.md) · [`docs/findings.md`](docs/findings.md) · [`docs/hmi.md`](docs/hmi.md) | measured RAM/disk/cardinality · the things that cost an hour · the map and the mimic |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | conventions, the file tree, the checklist before "done" |
+| [`docs/upstream/`](docs/upstream/ot-quality-attribute.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) | the prepared upstream proposal (data-point validity) · conventions, the file tree, the checklist |
 
 ## Status and next
 

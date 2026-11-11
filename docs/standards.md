@@ -290,6 +290,10 @@ to notice.
 - OCPP conformance of any kind — §6 lists what is implemented and what is not.
 - A **power-flow model**. Site meters, inverters and charge points each simulate their own load or
 generation; the meter does not sum the chargers, and no node balances (§6, findings #42).
+- **An upstream standard for data quality.** `otel.data_point.quality` is this repo's own
+  convention, not a published one; the proposal to make it one is prepared in
+  [`docs/upstream/ot-quality-attribute.md`](upstream/ot-quality-attribute.md) and has not been filed
+  (D49). Until it is, treat the four words as this repo's vocabulary.
 - **A market simulation.** `energy.market.price` is a **recording replayed**, not a market model
   and not a live feed: `docs/measurements/market-prices-nsw1.csv` is a representative day (overnight
   trough, morning and evening peaks, a midday negative-price strip), and
