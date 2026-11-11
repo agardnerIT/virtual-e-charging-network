@@ -10,7 +10,7 @@ testable boundary between operational technology (OT) and IT. This repo runs tho
 asserting them.
 
 ![Telemetry architecture](docs/architecture.png)
-Source of truth: [`docs/architecture.drawio`](docs/architecture.drawio); solid is running today, dashed planned.
+Source of truth: [`docs/architecture.drawio`](docs/architecture.drawio); solid is started by `make up`, dashed is optional.
 
 ## The idea
 
@@ -68,9 +68,9 @@ with more demand than supply, and an island that makes its own frequency.
 | `microgrid-kangaroo-island` | island | `microgrid` | Solar + one turbine + a grid-forming battery; no feeder, so frequency is set on site | impaired | — |
 
 The kind splits *regime*, not size: the rural site and the depot are both `charging_site`. Plain words per site,
-and which families live where: [`docs/telemetry.md` §1](docs/telemetry.md#1-the-sites-spelled-out). Six impaired
-links; the visual layer is Prometheus + Jaeger + our own map and mimic, fed only from the pipeline. Measured:
-27 containers, ~1.2 GiB ([`docs/sizing.md`](docs/sizing.md)).
+and which families live where: [`docs/telemetry.md` §1](docs/telemetry.md#1-the-sites-spelled-out). Five impaired
+links and one 12 ms fibre link; the visual layer is Prometheus + Jaeger + our own map and mimic, fed only from
+the pipeline. Measured: 31 containers, ~1.2 GiB (`make footprint`; the figure moves with process age).
 
 ## What the stack emits, before you run it
 
@@ -119,7 +119,8 @@ equation with droop control on the island, the charger's linear derate. **Not do
 OPC UA, real protection, real settlement, a power-flow model, OCPP conformance. Per-device fidelity, with
 the source of every number: [`docs/standards.md`](docs/standards.md).
 
-**Measured:** ~1.2 GiB for 27 containers against a 3 GB budget; six series per bay across three charging sites;
+**Measured:** 1.1–1.2 GiB for 31 containers against a 3 GB budget (1 104 MiB on a clean start, 1 194 MiB with
+aged pollers — `make footprint`); six series per bay across three charging sites;
 27 series on the island, whose four source metrics carry solar and wind as a dimension, not as two names
 (D40, [`docs/sizing.md`](docs/sizing.md)).
 
@@ -139,6 +140,7 @@ empty answer; the join that works today is `ocpp.transaction.id` (D33).
 | `make cap KW=100` · `make cap-clear` | cap the highway hub at 100 kW as an OCPP profile; watch six bays share it |
 | `make session SITE=metro EVSE=EVSE07` · `make exemplar` | one bay's transaction · ask for exemplars, get `[]` |
 | `make slo` · `make demo` · `make clean` | the four SLOs with targets · the whole story, ending in a verdict · stop and delete everything |
+| `make footprint` | the six-site sizing table above, measured from `docker stats` in one command |
 | `make registry-check` · `make registry-live` | the vocabulary against the emitters at build time · the same vocabulary against the **running stack**: 60 s of weaver live-check, non-zero on drift |
 
 The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `microgrid-step-measure.sh`,
@@ -149,10 +151,10 @@ The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `
 | | |
 |---|---|
 | [`docs/telemetry.md`](docs/telemetry.md) | **start here if you just cloned it**: six sites, every metric and its split keys, traces, logs, pointing it at your backend |
-| [`plan.md`](plan.md) · [issues](https://github.com/agardnerIT/virtual-e-charging-network/issues) | decisions D1–D43 (source of truth) · the work, in milestones |
+| [`plan.md`](plan.md) · [issues](https://github.com/agardnerIT/virtual-e-charging-network/issues) | decisions D1–D51 (source of truth) · the work, in milestones |
 | [`docs/sites/`](docs/sites) | [`rural`](docs/sites/rural.md) scaling, deadband, the sag · [`generation`](docs/sites/generation.md) clipping, cube law · [`metro`](docs/sites/metro.md) twelve bays · [`highway`](docs/sites/highway.md) load management · [`microgrid`](docs/sites/microgrid.md) why frequency moves |
 | [`docs/ot-primer.md`](docs/ot-primer.md) · [`docs/standards.md`](docs/standards.md) | the electrical side for IT people, including the clock problem · which spec each device claims, and how faithfully |
-| [`docs/sizing.md`](docs/sizing.md) · [`docs/findings.md`](docs/findings.md) · [`docs/hmi.md`](docs/hmi.md) | measured RAM/disk/cardinality · the things that cost an hour · the map and the mimic |
+| [`docs/sizing.md`](docs/sizing.md) · [`docs/findings.md`](docs/findings.md) · [`docs/hmi.md`](docs/hmi.md) · [`docs/alarms.md`](docs/alarms.md) | measured RAM/disk/cardinality · the things that cost an hour · the map and the mimic · the four SLOs and the alarm predicates |
 | [`docs/upstream/`](docs/upstream/ot-quality-attribute.md) · [`CONTRIBUTING.md`](CONTRIBUTING.md) | the prepared upstream proposal (data-point validity) · conventions, the file tree, the checklist |
 
 ## Status and next
@@ -160,5 +162,6 @@ The rest is in the [`Makefile`](Makefile); the harnesses (`outage-measure.sh`, `
 M0–M5 are done and verified: six sites, a picture at <http://127.0.0.1:8091>, six clean edges, `make spine` ending
 in `PowerLoss`, twelve bays, four SLOs. `make demo` runs all of it and fails loudly. M6 is done bar the optional OpAMP
 stretch, and every milestone issue is closed. The registry is checked in both directions: `make registry-check`
-against the emitters, `make registry-live` against the running stack — the second one found 452 wrong units and
-360 undeclared attributes in a stack that was already passing the first ([`schema/README.md`](schema/README.md)).
+against the emitters, `make registry-live` against the running stack — the second one found 3 828 violations in a
+stack that was already passing the first — including 452 unit mismatches, 3 253 missing attributes and
+117 missing metrics ([`schema/README.md`](schema/README.md)).

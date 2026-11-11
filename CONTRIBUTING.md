@@ -10,7 +10,7 @@ the rules that keep it coherent. They are short on purpose.
 | **OTel-native, no exceptions** | D15 | No ActiveGate, no OneAgent, no vendor agent. The collectors *are* the agents. Every backend is reached over OTLP only. |
 | **Two collector layers, and only two** | D16 | One edge collector per site, one hub. Do not add a tier. |
 | **arm64 only** | D10 | Must run on Apple Silicon. Verify any new image actually runs arm64. |
-| **≤3 GB RAM total** | D10 | Currently ~1.2 GiB for 27 containers (six sites). Measure, then update `docs/sizing.md`. |
+| **≤3 GB RAM total** | D10 | Currently ~1.2 GiB for 31 containers (six sites). Measure, then update `docs/sizing.md`. |
 | **Docker Compose only** | D13 | No Kubernetes. |
 | **Clean energy only** | D17 | No diesel, no thermal, no nuclear generation. |
 | **One southbound protocol** | D4 | Modbus (SunSpec-shaped). Do not add DNP3, IEC 104, 61850, DLMS or OPC UA. |

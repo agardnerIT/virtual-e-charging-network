@@ -1,157 +1,232 @@
 <mxfile host="app.diagrams.net" type="device">
-  <diagram name="M1a architecture" id="arch-m1a">
-    <mxGraphModel dx="1400" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1400" pageHeight="900" math="0" shadow="0">
+  <diagram name="Six-site architecture" id="arch-six-sites">
+    <mxGraphModel dx="1500" dy="900" grid="0" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="1500" pageHeight="870" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
 
         <!-- ============ zone plates (behind everything) ============ -->
         <mxCell id="zone-ot" value="" style="rounded=1;fillColor=#f5f8fb;strokeColor=#c9d3dd;" vertex="1" parent="1">
-          <mxGeometry x="40" y="100" width="400" height="580" as="geometry" />
+          <mxGeometry x="40" y="104" width="560" height="640" as="geometry" />
         </mxCell>
         <mxCell id="zone-wan" value="" style="rounded=1;fillColor=#fdf9ee;strokeColor=#e6d9b8;" vertex="1" parent="1">
-          <mxGeometry x="470" y="100" width="200" height="580" as="geometry" />
+          <mxGeometry x="630" y="104" width="170" height="640" as="geometry" />
         </mxCell>
         <mxCell id="zone-noc" value="" style="rounded=1;fillColor=#f2f7fc;strokeColor=#c9d3dd;" vertex="1" parent="1">
-          <mxGeometry x="710" y="100" width="520" height="580" as="geometry" />
+          <mxGeometry x="830" y="104" width="620" height="640" as="geometry" />
         </mxCell>
 
         <!-- ============ titles ============ -->
         <mxCell id="title" value="Virtual E-Charging Network — telemetry architecture" style="text;html=1;align=left;verticalAlign=middle;fontSize=20;fontStyle=1;fontColor=#1f2933;" vertex="1" parent="1">
           <mxGeometry x="40" y="24" width="900" height="30" as="geometry" />
         </mxCell>
-        <mxCell id="subtitle" value="OpenTelemetry in the OT world · two collector layers, edge and hub · M1a: the weak-rural site on real Modbus/SunSpec, normalised at the edge" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#52606d;" vertex="1" parent="1">
-          <mxGeometry x="40" y="56" width="900" height="20" as="geometry" />
+        <mxCell id="subtitle" value="OpenTelemetry in the OT world · six sites, one edge collector each (D16) · one hub fans out to Prometheus, Jaeger and the map" style="text;html=1;align=left;verticalAlign=middle;fontSize=11;fontColor=#52606d;" vertex="1" parent="1">
+          <mxGeometry x="40" y="54" width="1100" height="20" as="geometry" />
         </mxCell>
 
         <mxCell id="hdr-ot" value="SITES — OT zone" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#1f2933;" vertex="1" parent="1">
-          <mxGeometry x="60" y="112" width="360" height="20" as="geometry" />
+          <mxGeometry x="60" y="116" width="360" height="20" as="geometry" />
         </mxCell>
-        <mxCell id="hdr-ot-sub" value="one edge collector per site" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7b8794;" vertex="1" parent="1">
-          <mxGeometry x="60" y="132" width="360" height="16" as="geometry" />
+        <mxCell id="hdr-ot-sub" value="one edge collector per site; nothing here publishes a host port" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7b8794;" vertex="1" parent="1">
+          <mxGeometry x="60" y="136" width="520" height="16" as="geometry" />
         </mxCell>
         <mxCell id="hdr-wan" value="WAN" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#1f2933;" vertex="1" parent="1">
-          <mxGeometry x="490" y="112" width="160" height="20" as="geometry" />
+          <mxGeometry x="650" y="116" width="130" height="20" as="geometry" />
         </mxCell>
         <mxCell id="hdr-wan-sub" value="impaired per site" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7b8794;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="490" y="132" width="160" height="16" as="geometry" />
+          <mxGeometry x="650" y="136" width="130" height="20" as="geometry" />
         </mxCell>
         <mxCell id="hdr-noc" value="NOC — IT zone" style="text;html=1;align=left;verticalAlign=middle;fontSize=12;fontStyle=1;fontColor=#1f2933;" vertex="1" parent="1">
-          <mxGeometry x="730" y="112" width="480" height="20" as="geometry" />
+          <mxGeometry x="850" y="116" width="480" height="20" as="geometry" />
         </mxCell>
         <mxCell id="hdr-noc-sub" value="one hub collector; the only thing backends connect to" style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7b8794;" vertex="1" parent="1">
-          <mxGeometry x="730" y="132" width="480" height="16" as="geometry" />
+          <mxGeometry x="850" y="136" width="580" height="16" as="geometry" />
         </mxCell>
 
-        <!-- ============ site cards ============ -->
-        <mxCell id="card-rural" value="Weak rural charging site · Broken Hill — M1a" style="swimlane;startSize=26;rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;fontSize=11;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="160" width="360" height="130" as="geometry" />
+        <!-- ============ site card 1: rural ============ -->
+        <mxCell id="card-rural" value="Broken Hill · charging_site · 2 bays" style="swimlane;startSize=24;rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;fontSize=10.5;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="166" width="255" height="168" as="geometry" />
         </mxCell>
-        <mxCell id="card-solar" value="Solar farm · Mildura — M0 stand-in (M1b: real device)" style="swimlane;startSize=26;rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;fontSize=11;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="300" width="360" height="130" as="geometry" />
+        <mxCell id="dev-rural" value="SunSpec meter&lt;br&gt;2-bay OCPP charge point" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="70" y="198" width="235" height="46" as="geometry" />
         </mxCell>
-        <mxCell id="card-wind" value="Wind farm · Port Augusta — M1b" style="swimlane;startSize=26;rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;dashed=1;fontSize=11;fontStyle=1;fontColor=#52606d;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
-          <mxGeometry x="60" y="440" width="360" height="130" as="geometry" />
+        <mxCell id="poller-rural" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;→ OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="70" y="254" width="64" height="50" as="geometry" />
         </mxCell>
-        <mxCell id="note-more" value="Metro depot + home · highway charging hub · isolated microgrid&#10;same collector configuration, different environment — M3 / M4" style="rounded=1;dashed=1;fillColor=none;strokeColor=#9aa5b1;html=1;fontSize=10;fontColor=#52606d;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="60" y="590" width="360" height="70" as="geometry" />
+        <mxCell id="edge-rural" value="&lt;b&gt;edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;clocks · queue" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=2;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="150" y="254" width="155" height="50" as="geometry" />
         </mxCell>
-
-        <!-- rural internals: a real Modbus device path (M1a) -->
-        <mxCell id="dev-rural" value="&lt;b&gt;Modbus meter&lt;/b&gt;&lt;br&gt;SunSpec int + SF" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="72" y="210" width="104" height="60" as="geometry" />
-        </mxCell>
-        <mxCell id="poller-rural" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;&amp;rarr; OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="196" y="210" width="64" height="60" as="geometry" />
-        </mxCell>
-        <mxCell id="edge-rural" value="&lt;b&gt;Edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;dual timestamps · queue" style="rounded=1;fillColor=#eef4fb;strokeColor=#3b6ea5;strokeWidth=2;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="268" y="210" width="134" height="60" as="geometry" />
-        </mxCell>
-        <mxCell id="e-poll-rural" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="poller-rural" target="dev-rural">
+        <mxCell id="e-poll-rural" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="poller-rural" target="dev-rural">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-poller-edge" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=9;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-rural" target="edge-rural">
+        <mxCell id="e-poller-edge-rural" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=8;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-rural" target="edge-rural">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- solar internals -->
-        <mxCell id="dev-solar" value="&lt;b&gt;Device source&lt;/b&gt;&lt;br&gt;M0: stand-in&lt;br&gt;M1b: Modbus / SunSpec" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="76" y="350" width="140" height="60" as="geometry" />
+        <!-- ============ site card 2: solar ============ -->
+        <mxCell id="card-solar" value="Mildura · solar_farm" style="swimlane;startSize=24;rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;fontSize=10.5;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="330" y="166" width="255" height="168" as="geometry" />
         </mxCell>
-        <mxCell id="edge-solar" value="&lt;b&gt;Edge collector&lt;/b&gt;&lt;br&gt;normalise · quality&lt;br&gt;disk-backed queue" style="rounded=1;fillColor=#eef4fb;strokeColor=#3b6ea5;strokeWidth=2;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="260" y="350" width="140" height="60" as="geometry" />
+        <mxCell id="dev-solar" value="SunSpec 103 inverter&lt;br&gt;2 MPPT · irradiance · temp" style="rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="198" width="235" height="46" as="geometry" />
         </mxCell>
-        <mxCell id="e-dev-solar" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=9;fontColor=#7b8794;exitX=0;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="edge-solar" target="dev-solar">
+        <mxCell id="poller-solar" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;→ OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="254" width="64" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-solar" value="&lt;b&gt;edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;clocks · queue" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=2;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="420" y="254" width="155" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poll-solar" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="poller-solar" target="dev-solar">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poller-edge-solar" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-solar" target="edge-solar">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
-        <!-- wind internals -->
-        <mxCell id="dev-wind" value="&lt;b&gt;Device source&lt;/b&gt;&lt;br&gt;Modbus / SunSpec" style="rounded=1;dashed=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=10;fontColor=#52606d;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="76" y="490" width="140" height="60" as="geometry" />
+        <!-- ============ site card 3: wind ============ -->
+        <mxCell id="card-wind" value="Snowtown · wind_farm" style="swimlane;startSize=24;rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;fontSize=10.5;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="346" width="255" height="168" as="geometry" />
         </mxCell>
-        <mxCell id="edge-wind" value="&lt;b&gt;Edge collector&lt;/b&gt;&lt;br&gt;normalise · quality&lt;br&gt;disk-backed queue" style="rounded=1;dashed=1;fillColor=#eef4fb;strokeColor=#3b6ea5;strokeWidth=2;html=1;fontSize=10;fontColor=#52606d;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="260" y="490" width="140" height="60" as="geometry" />
+        <mxCell id="dev-wind" value="6 turbines&lt;br&gt;+ farm connection point" style="rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="70" y="378" width="235" height="46" as="geometry" />
         </mxCell>
-        <mxCell id="e-dev-wind" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#9aa5b1;fontSize=9;fontColor=#7b8794;exitX=0;exitY=0.5;entryX=1;entryY=0.5;dashed=1;" edge="1" parent="1" source="edge-wind" target="dev-wind">
+        <mxCell id="poller-wind" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;→ OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#5b8c39;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="70" y="434" width="64" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-wind" value="&lt;b&gt;edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;clocks · queue" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=2;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="150" y="434" width="155" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poll-wind" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="poller-wind" target="dev-wind">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poller-edge-wind" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-wind" target="edge-wind">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ site card 4: metro ============ -->
+        <mxCell id="card-metro" value="Tottenham · charging_site · 12 bays" style="swimlane;startSize=24;rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;fontSize=10.5;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="330" y="346" width="255" height="168" as="geometry" />
+        </mxCell>
+        <mxCell id="dev-metro" value="SunSpec meter&lt;br&gt;12-bay OCPP charge point" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="378" width="235" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="poller-metro" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;→ OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="434" width="64" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-metro" value="&lt;b&gt;edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;clocks · queue" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=2;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="420" y="434" width="155" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poll-metro" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="poller-metro" target="dev-metro">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poller-edge-metro" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-metro" target="edge-metro">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ site card 5: highway ============ -->
+        <mxCell id="card-highway" value="Hume · charging_site · 6 bays" style="swimlane;startSize=24;rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;fontSize=10.5;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="60" y="526" width="255" height="168" as="geometry" />
+        </mxCell>
+        <mxCell id="dev-highway" value="SunSpec meter&lt;br&gt;6-bay OCPP · 100 kW site cap" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="70" y="558" width="235" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="poller-highway" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;→ OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#3b6ea5;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="70" y="614" width="64" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-highway" value="&lt;b&gt;edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;clocks · queue" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=2;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="150" y="614" width="155" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poll-highway" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="poller-highway" target="dev-highway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poller-edge-highway" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-highway" target="edge-highway">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <!-- ============ site card 6: microgrid ============ -->
+        <mxCell id="card-microgrid" value="Kangaroo Island · microgrid" style="swimlane;startSize=24;rounded=1;fillColor=#ffffff;strokeColor=#7a5c9e;fontSize=10.5;fontStyle=1;fontColor=#1f2933;swimlaneFillColor=#ffffff;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="330" y="526" width="255" height="168" as="geometry" />
+        </mxCell>
+        <mxCell id="dev-microgrid" value="Solar + 1 turbine&lt;br&gt;grid-forming BESS" style="rounded=1;fillColor=#ffffff;strokeColor=#7a5c9e;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="558" width="235" height="46" as="geometry" />
+        </mxCell>
+        <mxCell id="poller-microgrid" value="&lt;b&gt;poller&lt;/b&gt;&lt;br&gt;Modbus&lt;br&gt;→ OTLP" style="rounded=1;fillColor=#ffffff;strokeColor=#7a5c9e;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="340" y="614" width="64" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-microgrid" value="&lt;b&gt;edge collector&lt;/b&gt;&lt;br&gt;units · quality&lt;br&gt;clocks · queue" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=2;html=1;fontSize=8;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="420" y="614" width="155" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poll-microgrid" value="poll" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;startArrow=classic;startFill=1;strokeColor=#52606d;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0.5;exitY=0;entryX=0.3;entryY=1;" edge="1" parent="1" source="poller-microgrid" target="dev-microgrid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-poller-edge-microgrid" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="poller-microgrid" target="edge-microgrid">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
         <!-- ============ the impaired WAN ============ -->
+        <mxCell id="e-ot-wan" value="6 × OTLP/gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=9;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="zone-ot" target="toxiproxy">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
         <mxCell id="toxiproxy" value="&lt;b&gt;toxiproxy&lt;/b&gt;&lt;br&gt;latency · loss&lt;br&gt;bandwidth · outage" style="rounded=1;fillColor=#fdf6e3;strokeColor=#b08800;strokeWidth=2;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="490" y="340" width="160" height="100" as="geometry" />
+          <mxGeometry x="650" y="380" width="130" height="120" as="geometry" />
         </mxCell>
-
-        <mxCell id="e-rural-wan" value="OTLP/gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=9;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.25;" edge="1" parent="1" source="edge-rural" target="toxiproxy">
-          <mxGeometry relative="1" as="geometry" />
+        <mxCell id="wan-cmd" value="make link SITE=wind&#10;PROFILE=down" style="text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#7b8794;fontFamily=Courier New;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="640" y="520" width="150" height="36" as="geometry" />
         </mxCell>
-        <mxCell id="e-solar-wan" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="edge-solar" target="toxiproxy">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e-wind-wan" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#9aa5b1;exitX=1;exitY=0.5;entryX=0.5;entryY=1;dashed=1;" edge="1" parent="1" source="edge-wind" target="toxiproxy">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-
-        <mxCell id="wan-cmd" value="make link SITE=rural&#10;PROFILE=down" style="text;html=1;align=center;verticalAlign=middle;fontSize=9;fontColor=#7b8794;fontFamily=Courier New;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="490" y="572" width="160" height="40" as="geometry" />
-        </mxCell>
-
         <mxCell id="e-wan-hub" value="OTLP/gRPC" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=9;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="toxiproxy" target="hub">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
 
         <!-- ============ hub and backends ============ -->
-        <mxCell id="hub" value="&lt;b&gt;Hub collector&lt;/b&gt;&lt;br&gt;order · enrich&lt;br&gt;tail-sample · fanout&lt;br&gt;self-telemetry" style="rounded=1;fillColor=#eef4fb;strokeColor=#3b6ea5;strokeWidth=3;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="750" y="330" width="210" height="120" as="geometry" />
+        <mxCell id="hub" value="&lt;b&gt;hub collector&lt;/b&gt;&lt;br&gt;order · enrich&lt;br&gt;tail-sample · fan-out&lt;br&gt;self-telemetry" style="rounded=1;fillColor=#e8f1f8;strokeColor=#1f4e79;strokeWidth=3;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="870" y="350" width="190" height="140" as="geometry" />
         </mxCell>
 
-        <mxCell id="be-debug" value="&lt;b&gt;debug exporter&lt;/b&gt;&lt;br&gt;pipeline debugging" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="1010" y="180" width="200" height="70" as="geometry" />
+        <mxCell id="be-metrics" value="&lt;b&gt;Prometheus 3&lt;/b&gt; · metrics&lt;br&gt;OTLP in, no host port (D3)" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="170" width="310" height="58" as="geometry" />
         </mxCell>
-        <mxCell id="be-local" value="&lt;b&gt;Local visual stack&lt;/b&gt;&lt;br&gt;map · mimic · alarms&lt;br&gt;(M0 decision pending)" style="rounded=1;dashed=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="1010" y="310" width="200" height="80" as="geometry" />
+        <mxCell id="be-traces" value="&lt;b&gt;Jaeger v2&lt;/b&gt; · traces&lt;br&gt;OTLP in" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="240" width="310" height="58" as="geometry" />
         </mxCell>
-        <mxCell id="be-otlp" value="&lt;b&gt;Any OTLP backend&lt;/b&gt;&lt;br&gt;Dynatrace · Grafana&lt;br&gt;SigNoz · Honeycomb" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=10;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="1010" y="450" width="200" height="80" as="geometry" />
+        <mxCell id="be-hmi" value="&lt;b&gt;HMI&lt;/b&gt; · map · mimic · alarms&lt;br&gt;reads both stores" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="380" width="310" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="be-debug" value="&lt;b&gt;debug exporter&lt;/b&gt; · logs&lt;br&gt;OCPP frames; no log store by design (#19)" style="rounded=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=9;fontColor=#333333;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="470" width="310" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="be-otlp" value="&lt;b&gt;your OTLP backend&lt;/b&gt;&lt;br&gt;one exporter in the hub's metrics pipeline" style="rounded=1;dashed=1;fillColor=#ffffff;strokeColor=#9aa5b1;html=1;fontSize=9;fontColor=#52606d;align=center;verticalAlign=middle;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="1100" y="560" width="310" height="58" as="geometry" />
         </mxCell>
 
-        <mxCell id="e-hub-debug" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.25;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-debug">
+        <mxCell id="e-hub-metrics" value="OTLP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=8;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.1;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-metrics">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-hub-local" value="OTLP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=9;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-local">
+        <mxCell id="e-hub-traces" value="OTLP" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=8;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.3;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-traces">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e-hub-otlp" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;exitX=1;exitY=0.75;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-otlp">
+        <mxCell id="e-hub-debug" value="logs" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#52606d;fontSize=8;fontColor=#52606d;labelBackgroundColor=#ffffff;exitX=1;exitY=0.75;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-debug">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-hub-otlp" value="optional" style="edgeStyle=orthogonalEdgeStyle;rounded=1;dashed=1;html=1;endArrow=classic;endFill=1;strokeColor=#9aa5b1;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=1;exitY=0.9;entryX=0;entryY=0.5;" edge="1" parent="1" source="hub" target="be-otlp">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-metrics-hmi" value="PromQL" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#9aa5b1;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=0;exitY=0.5;entryX=0;entryY=0.5;" edge="1" parent="1" source="be-metrics" target="be-hmi">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-traces-hmi" value="trace API" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;endArrow=classic;endFill=1;strokeColor=#9aa5b1;fontSize=8;fontColor=#7b8794;labelBackgroundColor=#ffffff;exitX=1;exitY=0.5;entryX=1;entryY=0.5;" edge="1" parent="1" source="be-traces" target="be-hmi">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1420" y="269" as="sourcePoint" />
+          </mxGeometry>
         </mxCell>
 
         <!-- ============ callout ============ -->
-        <mxCell id="callout" value="&lt;b&gt;OTel-native:&lt;/b&gt; no ActiveGate, no OneAgent. The collectors &lt;i&gt;are&lt;/i&gt; the agents. Every backend is reached over OTLP and nothing else." style="rounded=1;dashed=1;fillColor=#ffffff;strokeColor=#1f2933;html=1;fontSize=10;fontColor=#1f2933;align=left;verticalAlign=middle;whiteSpace=wrap;spacingLeft=10;" vertex="1" parent="1">
-          <mxGeometry x="730" y="598" width="480" height="50" as="geometry" />
+        <mxCell id="callout" value="&lt;b&gt;OTel-native:&lt;/b&gt; no ActiveGate, no OneAgent. The collectors &lt;i&gt;are&lt;/i&gt; the agents, and every backend is reached over OTLP." style="rounded=1;dashed=1;fillColor=#ffffff;strokeColor=#1f2933;html=1;fontSize=10;fontColor=#1f2933;align=left;verticalAlign=middle;whiteSpace=wrap;spacingLeft=10;" vertex="1" parent="1">
+          <mxGeometry x="40" y="756" width="1410" height="34" as="geometry" />
         </mxCell>
 
         <!-- ============ footer ============ -->
-        <mxCell id="footer" value="Solid border = running today (M1a) · dashed = planned.    Blue = OpenTelemetry Collector · green = generation site · amber = impaired WAN.&#10;poll = the poller is the Modbus master: it requests and the meter answers — devices never push. OpenTelemetry has no Modbus receiver, so the poller is a separate process; the edge collector is still the only thing northbound, and it stamps energy.site.id, energy.site.kind and geo.latitude/longitude on every signal so the map needs no knowledge of the sites." style="text;html=1;align=left;verticalAlign=middle;fontSize=10;fontColor=#7b8794;whiteSpace=wrap;" vertex="1" parent="1">
-          <mxGeometry x="40" y="700" width="1170" height="54" as="geometry" />
+        <mxCell id="footer" value="Solid = started by &lt;code&gt;make up&lt;/code&gt; · dashed = optional, not in the default path.    Blue = charging site · green = generation site · purple = microgrid · navy = OpenTelemetry Collector · amber = impaired WAN.&#10;poll = the poller is the Modbus master: it requests and the meter answers — devices never push. The edge collector is the site's only egress and stamps &lt;code&gt;energy.site.id&lt;/code&gt;, &lt;code&gt;energy.site.kind&lt;/code&gt; and &lt;code&gt;geo.latitude/longitude&lt;/code&gt; on every signal, so the map needs no knowledge of the sites." style="text;html=1;align=left;verticalAlign=middle;fontSize=9;fontColor=#7b8794;whiteSpace=wrap;" vertex="1" parent="1">
+          <mxGeometry x="40" y="798" width="1410" height="58" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>

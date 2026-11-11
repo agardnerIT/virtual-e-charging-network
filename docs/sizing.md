@@ -241,7 +241,7 @@ formatted as this file's table):
 | browser and map | <http://127.0.0.1:8091> |
 
 The 31 containers are six edge collectors, six devices, six pollers, three charge points with three
-CSMSs, the hub, the market feed, toxiproxy, the ops box, and four visual containers. The per-container
+CSMSs, the hub, the market feed, toxiproxy, the ops box, and three visual containers. The per-container
 table is one command away (`make footprint`) and is deliberately not pasted here in full: it changes
 with every session and every process age, which is the whole lesson of the next section.
 
