@@ -307,11 +307,12 @@ docker compose -f compose/docker-compose.yml stop device-rural
 make prom Q='energy_meter_voltage_volts{energy_site_id="rural"}'
 ```
 
-### 3.5 Two extra numbers that are not device signals
+### 3.5 Three extra numbers that are not device signals
 
 | Metric | What it is |
 |---|---|
-| `modbus_device_clock_offset_seconds` | The device's clock minus the poller's, per device. This is the clock-skew story (issue #4, D12/D23) before it reaches a trace. |
+| `modbus_device_clock_error_seconds` | **Measured** device clock error: the device's clock minus the collector's, at the last read. Positive means the device is behind. This is the clock-skew story (D42/D43) in one bounded number, and it replaces a per-sample `energy.device.timestamp` attribute that leaked memory in the SDK (D51, findings #57). |
+| `modbus_device_clock_offset_seconds` | The *configured* offset for the device (a register the simulator exposes). It agrees with the measured error, which is the point of emitting both. |
 | `modbus_device_register_word_order_ratio` | Which word order the poller negotiated for 32-bit registers. Provenance for every float. |
 
 ### 3.6 Charts to build in the first ten minutes
