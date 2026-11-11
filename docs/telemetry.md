@@ -469,9 +469,9 @@ at all; control is `docker compose exec` (`make fault`, `make session`).
 
 ## 8. toxiproxy: the problem patterns, and what they do to the telemetry
 
-Each site owns one proxy (`rural-wan`, `solar-wan`, `wind-wan`, `metro-wan`), so links degrade
-independently. `make link SITE=<rural|solar|wind|metro> PROFILE=<wet|degraded|satellite|down>`
-(`impairment/link.sh`) resets the link, then applies one profile.
+Each site owns one proxy (`rural-wan`, `solar-wan`, `wind-wan`, `metro-wan`, `microgrid-wan`), so links
+degrade independently. `make link SITE=<rural|solar|wind|metro|microgrid>
+PROFILE=<wet|degraded|satellite|down>` (`impairment/link.sh`) resets the link, then applies one profile.
 
 | Profile | Toxics applied | What the telemetry does — measured |
 |---|---|---|

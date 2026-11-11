@@ -273,3 +273,9 @@ code or config.
     looks exactly like an empty API response. Write the payload to a `mktemp` file and pass the path
     as `argv[1]`. Also: Jaeger's `/api/traces` reports `startTime` in **microseconds**; dividing twice
     prints a timestamp nineteen days in the future, which is how this one was caught.
+
+54. **`make spine` assumes EVSE01's expo session is already running.** The charge point starts one
+    on its own so the demo repeats, and `cpctl.py start` is a no-op if it is already there — which
+    is what you want — but a `spine` run against a *freshly restarted* CP that has not yet reached
+    its first session will sag into an idle bay and produce no `PowerLoss`. Wait for
+    `make session-status` to show `Charging` before judging the run.

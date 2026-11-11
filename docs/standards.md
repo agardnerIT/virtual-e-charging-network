@@ -5,6 +5,19 @@
 > and where we implement a *subset* of a standard, this file says so rather than letting the
 > reader assume conformance.
 
+Three different things live in this file, and the difference matters because only one of them is
+work:
+
+- **out of scope by decision** — a protocol or behaviour this repo will not implement, with the
+  decision that says so (OPC UA, DNP3, IEC 61850, ISO 15118 …).
+- **deferred** — not implemented today, and a pull request implementing it faithfully would be
+  welcome. Only these have issues (#12 is one: `SetChargingProfile`).
+- **not claimed** — modelled, but explicitly not to the standard. Not a gap; a statement of what
+  the numbers mean.
+
+**This file is not a roadmap.** Classifying every gap is #21; until then, treat a bare "not
+implemented" as *out of scope by decision* unless an issue links to it.
+
 Fidelity is stated per device. "Subset" means: the points and semantics listed are real,
 the byte layout follows the standard's conventions (integer registers, separate scale-factor
 registers, 32-bit values across two registers with a vendor word order, a not-implemented

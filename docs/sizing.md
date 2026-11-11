@@ -378,12 +378,15 @@ Also recorded in docs/findings.md #32 for port 8888.
 
 ## Not yet measured
 
-- Disk growth of the edge `file_storage` queues over a multi-hour outage (M3).
-- **A 60-minute soak on a poller**, to put the RSS slope beyond argument. See "Poller memory" for
-the method and for why short windows do not answer it.
-- A seven-site projection. At today's numbers: 7 pollers ≈ 223 MiB, 8 collectors ≈ 400 MiB,
-  hub + link + visual stack ≈ 140 MiB, so roughly 0.8 GB — inside D10, but the collector figures
-  should be re-measured on the real hardware class before that is quoted as fact.
-- Where logs should go. Neither visual-stack candidate stores them without adding Loki, which is
-  the one component that could still threaten D10 (`transform/visual` and the OTLP fanout carry
-  metrics and traces today; logs go to `debug` only).
+Each of these is an issue, not a note. Nothing here is a promise; they are the places where a
+number in this file is missing or weaker than the prose around it.
+
+- Disk growth of the edge `file_storage` queues over a multi-hour outage: **#3** (measured; the
+  table lands here when that run finishes).
+- The poller's **60-minute soak**, to put the RSS slope beyond argument: **#17**. See "Poller
+  memory" for why short windows do not answer it.
+- A **seven-site projection**, re-measured rather than multiplied: **#18**. At today's numbers
+  7 pollers ≈ 223 MiB and 8 collectors ≈ 400 MiB, so ~0.8 GB — inside D10, but the collector
+  figures should be re-measured before either is quoted as fact.
+- **Where logs go.** Neither visual-stack candidate stores them without adding Loki, which is
+  the one component that could still threaten D10. That is a decision, not a measurement: **#19**.

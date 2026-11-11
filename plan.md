@@ -1,14 +1,14 @@
 # Virtual E-Charging Network — Plan
 
-> **Last updated:** 2026-10-15
-> **Status:** **M1b complete** — the rural site runs a real SunSpec/Modbus meter, the solar site a
-> real SunSpec inverter (models 103/160/302/303/123), and the wind farm a SunSpec-shaped 6-turbine
-> device; all three are the same image and the same poller, differing by configuration (D10). The
-> map of Australia and the per-site one-line mimic are fed only from the pipeline (D18).
-> **Next work item:** M2 — sessions as traces (OCPP CP sim + CSMS-lite, a metric exemplar linking
-> a sag to a failed session). See [`NEXT.md`](NEXT.md).
-> **Living document rule:** this file is the source of truth for decisions. `notes.txt` is the original
-> brief and is left alone. Superseded decisions are struck through with the replacement noted, never deleted.
+> **Last updated:** 2026-11-11
+> **Status:** M0–M3 complete: five sites (rural, solar, wind, metro depot, isolated microgrid), one
+> hub, one impaired link per site, sessions as traces, store-and-forward through a measured outage,
+> and a clock-skew demonstration that makes an effect precede its cause.
+> **Work is tracked in [GitHub issues and milestones](https://github.com/agardnerIT/virtual-e-charging-network/milestones).**
+> This file holds decisions, measurements and fidelity disclosures only; a doc names future work as an
+> issue link (`#12`) and never as a TODO.
+> **Living document rule:** this file is the source of truth for decisions. Superseded decisions are
+> struck through with the replacement noted, never deleted.
 
 ---
 
@@ -359,50 +359,34 @@ about inspiration that only becomes inspiring at M5 is mis-sequenced.
 | **M1** | **Generation + one load, roughly end to end** | **M1a ✅ (2026-10-14):** the weak-rural site carries real OT data — SunSpec/Modbus meter → poller → edge (names, units, sign, quality, dual timestamps) → impaired link → hub; a voltage sag runs end to end; deadband at the source. **M1b part 1 ✅ (2026-10-14):** the map of Australia and the per-site one-line mimic, both fed only from the pipeline; the local visual stack chosen on measured RAM (D24); two cardinality/memory bugs found and fixed on the way (D25, D26). **M1b part 2 ✅ (2026-10-15):** the solar site runs a real SunSpec/Modbus inverter (models 103/160/302/303/123) and the wind farm is a third, independently instrumented site (six turbines, its own edge collector, OT network and link profile); `telemetrygen` is gone from the default path and all three devices share one image. |
 | **M2** | **Sessions as traces** ✅ | **Done (2026-10-15):** an OCPP 1.6J charge point and a CSMS test double run in the rural OT zone; a session is one trace (`ocpp.session` → authorize / start / meter_values / `energy.voltage_sag` / stop) with `reason=PowerLoss` after a real sag measured over Modbus; OCPP frames are logs carrying the session's `trace_id`; the rural mimic's EVSE01/02 boxes are live. `make spine` runs sag → derate → failed session in one command. The metric-exemplar leg is wired but **not carried by the chosen store** — measured, and recorded as D33. |
 | **M3** | **Hard cases** | Metro depot + isolated microgrid; store-and-forward verified through a simulated multi-hour outage; clock skew makes an event appear before its cause at the hub. Still no OpAMP (D8). **Metro depot ✅ (2026-11-11):** a fourth site with twelve bays on one OCPP charge point over a 12 ms fibre link, twelve concurrent sessions, one trace each and no crossed transaction ids; the site meter's ~13 kW beside twelve 22 kW bays is recorded as a gap, not faked (`docs/standards.md` §6, findings #42). The EVSE series count is measured before and after in `docs/sizing.md`. |
-| **M4** | **Breadth + registry** | Highway hub load management under a capacity cap; full `energy.*` registry in place and validated; per-phase cardinality control measured. |
-| **M5** | **SLOs + scripted demo** | Alarms/SLOs (session success rate, time-to-first-power, delivered vs requested kWh, PQ event exposure); `make demo` runs the whole story reproducibly. |
-| **M6** | **Polish + contribute back** | README walks a newcomer through the pipeline and the map; Weaver registry validated in CI; upstream component(s) proposed; OpAMP as an optional stretch. |
+| **M4** | **Breadth + registry** | Highway hub load management under a capacity cap (#12); full `energy.*` registry in place and validated (#9, blocked by the naming decision in #10); per-phase cardinality control measured (#11). |
+| **M5** | **SLOs + scripted demo** | Alarms/SLOs — session success rate, time-to-first-power, delivered vs requested kWh, PQ event exposure (#13); `make demo` runs the whole story reproducibly (#14). |
+| **M6** | **Polish + contribute back** | Public naming (#15); upstream contribution, one at a time under the rule of two (#16); OpAMP as an optional stretch. The README-walks-a-newcomer part of this row is done (#6, `docs/telemetry.md`). |
 
 Not parallel where it matters: M0 before M1 (do not debug a domain simulator and a collector topology at
 the same time), and M1 before M2 (traces without correct metric semantics produce pretty nonsense).
 
 ---
 
-## 10. Repo layout (proposed)
+## 10. Repo layout
 
-```
-notes.txt                  original brief (frozen)
-plan.md                    this file — decisions + roadmap
-README.md                  newcomer walkthrough (written at M6, stubbed earlier)
-docs/
-  ot-primer.md             electrical/OT primer for IT people
-  domains/                 per-plane inventories: grid, site, behind-the-meter, IT
-  sizing.md                measured RAM/disk per component (M0)
-  standards.md             which specs each simulator claims to represent, and how faithfully
-sim/
-  world-model/             physics + profiles + fault injection API
-  site/                    device sims (modbus/sunspec, ocpp cp, meters) — one parameterised image
-  generation/              solar farm + wind farm sims (clean energy only, D17)
-  csms/                    OCPP CSMS test double (+ optional real-CSMS profile)
-collector/
-  edge/*.yaml              per-archetype edge collector configs
-  hub/*.yaml               hub pipelines, routing, sampling, fanout
-  otlp-exporters/*.yaml    backend recipes (debug/local/dynatrace/...)
-schema/                    Weaver registry: energy.* semconv
-hmi/                       visuals, all pipeline-fed (D18):
-  map/                     Australia map: sites, generation vs load, live state
-  mimic/                   per-site one-line diagram
-  alarms/                  ISA-18.2-shaped alarm list
-impairment/                toxiproxy config + link profiles
-compose/                   docker-compose.yml + profiles
-dashboards/                provisioned-as-code for whatever stack is chosen
-scenarios/                 make-able fault/link/session scenarios
-Makefile
-```
+The real tree is in [`CONTRIBUTING.md`](CONTRIBUTING.md) §"Layout", and it is kept there because a
+layout that drifts from the filesystem is worse than none. What belongs here is the rule and the
+pieces that do **not** exist yet:
+
+- One image for every device and every poller (`sim/`), parameterised by environment only (D10).
+- One edge collector config for every site, one hub config (`collector/`).
+- `schema/` (a Weaver registry) is **#9**; there is no `energy.*` registry published yet.
+- Per-backend recipes (`collector/otlp-exporters/`) are **not** started; the swap point today is the
+  two `VISUAL_*_ENDPOINT` variables and `docs/telemetry.md` §7.
+- An alarm list in the HMI is **#13**; the mimic and the map are real.
 
 ---
 
 ## 11. Contribution candidates (D6)
+
+**Tracked in #16.** One at a time, and only once it has hurt twice here (D6). The list stays
+because it is the ranking argument, not the tracker.
 
 Ranked by (gap size × our ability to demonstrate it), not by ease:
 
@@ -453,9 +437,8 @@ decide it and the shape of the mimic did. Prometheus + Jaeger + our own `hmi/`, 
    runnable on 8 GB with zero backend decisions, but the first-run experience is log output.~~
    **Resolved:** default ends in a visual (map + mimic), not log output; `STACK=debug` remains for CI.
    See §7.
-4. **Electricity market realism**: is live NEM spot price (with negative prices) in scope for site 1, or
-   a static tariff table? Live data means an external dependency; a table means a cron-shaped simulator.
-5. **Naming**: keep `energy.*` as the registry prefix, or split `grid.*` / `solar.*` / `ev.*` to align with
-   how separate OTel SIGs think? Affects §11.3's reviewability.
-6. **Public naming of the whole project** — "virtual e-charging network" is descriptive, not memorable.
+4. **Electricity market realism** — live NEM spot price vs a static tariff table: **#22**.
+5. **Registry naming** — keep `energy.*` or split `grid.*` / `solar.*` / `ev.*`: **#10** (blocks #9).
+6. **Public naming of the whole project** — "virtual e-charging network" is descriptive, not
+   memorable: **#15**.
    Not urgent; matters at M6 when people have to find it.
