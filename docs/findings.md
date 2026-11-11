@@ -335,3 +335,14 @@ code or config.
     nothing, and the store still may. The two claims have to be separated — "nothing was dropped by
     the pipeline" is measurable at the edge (`enqueue_failed`, queue depth), and "the store kept it"
     is a *different* measurement, done with `count_over_time` across the outage window.
+
+61. **An instant PromQL query returns the *evaluation* timestamp, so "pick the newest series" cannot
+    be done from the response.** `max(result, key=lambda r: r["value"][0])` looks like it picks the
+    freshest series and does not: every row carries the same evaluation time. With one series per
+    metric it never mattered; after a poller restart (which mints a new `service.instance.id`,
+    findings #12) there are two, and the helper returned whichever the store listed first — the dead
+    one. Symptom: `make demo` reported the island's pre-step load of 174 kW while the device was
+    driving 450 kW, and the device's own `/health` disagreed with the dashboard. Fixed by wrapping the
+    selector in `last_over_time(...[25s])`, which drops series that have not reported recently, and
+    taking the max of what remains. This is the same lesson as D41 in a different disguise: **the
+    freshness of a series is a property you have to ask for explicitly.**

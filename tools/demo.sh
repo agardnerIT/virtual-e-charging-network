@@ -77,12 +77,18 @@ except Exception:
 print(sum(float(r["value"][1]) for r in data) if data else 0)'
 }
 
-# qfresh <promql>: the value of the *newest* series. A poller restart mints a new
-# service.instance.id and therefore a new series (findings #12), so taking result[0] silently
-# reads a process that died ten minutes ago (D41).
+# qfresh <selector>: the value of the newest series, and *only* if it is live.
+#
+# An instant query returns every matching series with the *evaluation* timestamp, so
+# `max(result, key=sample_time)` — the first version of this function — picks an arbitrary series,
+# not the newest one. When a poller restarts it mints a new `service.instance.id` (findings #12) and
+# the old series keeps its last value in the store for a few minutes, so the "newest" could be a
+# process that died ten minutes ago (D41). Wrapping the selector in `last_over_time(...[25s])`
+# drops any series that has not reported recently, which is exactly the distinction this needs: a
+# *live* value, or nothing.
 qfresh() {
   local enc
-  enc=$(Q="$1" python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["Q"]))')
+  enc=$(Q="last_over_time($1[25s])" python3 -c 'import os,urllib.parse; print(urllib.parse.quote(os.environ["Q"]))')
   $COMPOSE exec -T ops wget -qO- "http://prometheus:9090/api/v1/query?query=$enc" 2>/dev/null \
     | python3 -c '
 import json, sys
@@ -90,7 +96,7 @@ try:
     data = json.load(sys.stdin)["data"]["result"]
 except Exception:
     print(""); raise SystemExit
-print("" if not data else max(data, key=lambda r: float(r["value"][0]))["value"][1])'
+print(max((float(r["value"][1]) for r in data), default=""))'
 }
 
 # Edge queue depth: the collectors' own /metrics, exactly what `make queues` reads. Deliberately not
@@ -179,7 +185,7 @@ fi
 
 # ---------------------------------------------------------------------------------------------
 STEP=$((STEP+1)); say "$STEP" "A session on depot bay $EVSE is charging"
-$COMPOSE exec -T ocpp-cp-metro python ocpp/cpctl.py start --evse "$EVSE" > /dev/null 2>&1 || true
+$COMPOSE exec -T ocpp-cp-metro python ocpp/cpctl.py start --evse "$EVSE" > /tmp/demo-session.json 2>&1 || true
 if poll_until "$SESSION_WAIT" bay_delivering; then
   note "bay $EVSE is delivering ${BAY_W%%.*} W"
   ok "bay $EVSE is charging"
@@ -222,7 +228,12 @@ fi
 STEP=$((STEP+1)); say "$STEP" "A load step on the island moves frequency and the battery covers it"
 hz_before=$(qfresh "energy_microgrid_frequency_hertz{energy_site_id=\"$SITE_ISLAND\"}")
 note "before: ${hz_before:-?} Hz"
-$COMPOSE exec -T device-microgrid python site/faultctl.py loadstep --kw 300 --duration 60 > /dev/null 2>&1
+# The command's own exit status is part of the assertion: a load step that was refused (or an exec
+# into a container that is not there) must fail the step, not time out silently. That is how the
+# first version of this step failed twice without saying why.
+if ! $COMPOSE exec -T device-microgrid python site/faultctl.py loadstep --kw 300 --duration 60 > /tmp/demo-loadstep.json 2>&1; then
+  bad "the load step was not accepted: $(head -2 /tmp/demo-loadstep.json | tr '\n' ' ')"
+fi
 poll_until "$CAP_SETTLE" island_stepped || true      # report the failure below, do not exit here
 hz=$(qfresh "energy_microgrid_frequency_hertz{energy_site_id=\"$SITE_ISLAND\"}")
 bess=$(qfresh "energy_bess_power_real_watts{energy_site_id=\"$SITE_ISLAND\"}")
