@@ -38,7 +38,7 @@ VISUAL_PHASES ?=
 # default, which means real local time and an honest irradiance curve.
 SOLAR_CLOCK_HOUR ?=
 
-.PHONY: up up-debug assert-traffic down ps logs stats queues link fault fault-status profiles clean queue-detail \
+.PHONY: up up-debug assert-traffic demo down ps logs stats queues link fault fault-status profiles clean queue-detail \
 	device-logs poller-logs visual prom hmi curtail step microgrid-status clock-skew clock-reset \
 	session session-stop session-status spine exemplar ocpp-logs csms-logs
 
@@ -270,6 +270,11 @@ device-logs:
 
 poller-logs:
 	$(COMPOSE) logs -f poller-$(SITE)
+
+# M5: the whole story in one command, ending in a verdict. This is a test, not a transcript:
+# it exits non-zero and names the assertion that failed.  DEMO_FAST=1 for CI.
+demo:
+	@./tools/demo.sh
 
 profiles:
 	@curl -s $(TOXIPROXY)/proxies | python3 -m json.tool

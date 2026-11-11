@@ -195,6 +195,39 @@ holding a register array; the three pollers are within 5 MiB because they are th
 with a different register map. That is D10's "one image, sites differ by configuration"
 showing up as a number.
 
+## Per-phase cardinality, measured — and the one control (M4, #11)
+
+Every per-phase point is its own series in any attribute-flattening store. Measured on the running
+five-site stack, counting only series that *actually reported* in the last 45 s (a plain `count()`
+includes series that stopped sending minutes ago — findings #49):
+
+```
+make prom Q='count(last_over_time({__name__=~"energy_.*"}[45s]))'                      -> 213
+make prom Q='count(last_over_time({__name__=~"energy_.*",energy_phase!=""}[45s]))'     ->  84
+```
+
+So **84 of 213 active series — 39 % — exist only to carry a phase label**: 28 per-phase metrics x
+L1/L2/L3. With the control on (`make up VISUAL_PHASES=drop`), the same two queries give **130** and
+**0**: 83 series, 39 % of the estate, removed from the visual store with nothing invented.
+
+| | active `energy_*` series | of which phase-labelled |
+|---|---|---|
+| `VISUAL_PHASES=keep` (default) | 213 | 84 (39 %) |
+| `VISUAL_PHASES=drop` | 130 | 0 |
+
+**How it works, and what it deliberately does not do.** `filter/visual_phases` on the hub drops
+data points whose attribute set carries `energy.phase`, and only on `metrics/visual`. The aggregate
+is still there because the device publishes it: a SunSpec meter reports `V` as well as
+`VphA/B/C`. **No averaging happens in the collector** — an average computed there would be a number
+this repo cannot defend, and the per-phase data is still on the backend-of-record pipeline for any
+backend that wants it. The control is about what a *dashboard* needs, not about what the data means.
+
+What it does not do: no cardinality estimation, no per-tenant policy, no aggregation. If you need a
+mean of three phases, the device already publishes one; if you need the phases, you have the other
+pipeline. Reproduce with `make up VISUAL_PHASES=drop` and the two queries above.
+
+---
+
 ## Loki, measured — the log store this stack does not ship (D45)
 
 The default stack has no log store. That is a decision, and the usual justification for one —

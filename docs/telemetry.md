@@ -153,6 +153,20 @@ dimensions — keeping them in Prometheus mints a new series on every poll (meas
 Prometheus you do **not** get the device clock; use `modbus_device_clock_offset_seconds` (§3.5) or a
 trace.
 
+### 3.2.1 If you do not want the per-phase series
+
+39 % of the active `energy_*` series exist only to carry a phase label (measured: 84 of 213). The
+visual store can be told to drop them, leaving the device's own aggregate under the same metric
+name:
+
+```bash
+make up VISUAL_PHASES=drop     # the dashboard store gets the aggregate; the backend of record keeps both
+```
+
+That is a hub-side `filter` on the visual pipeline only — no averaging, no invented values,
+nothing removed from the backend-of-record path (`docs/sizing.md` §"Per-phase cardinality"). Default
+is `keep`, so nothing changes unless you ask.
+
 ### 3.3 The catalogue, by device family
 
 **Every site** — the site meter. 14 series (the energy register has two directions, voltage has
