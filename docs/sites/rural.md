@@ -79,6 +79,36 @@ Two things about the profiles that cost time: toxiproxy's config file declares p
 so a good-link baseline belongs in `impairment/link.sh` (`PROFILE=wet`) and `make up` applies it
 (`docs/findings.md` #41). And the depot's "good" link is 12 ms of fibre, not a clear one.
 
+## Time: the site where the clock is wrong on purpose
+
+The rural meter runs **7 seconds behind** — not as a decoration, as the ordinary condition of a site
+with no usable NTP (D12). Three things follow, and they are three different things, which is the
+point:
+
+1. **The device clock is provenance, not a sort key.** The poller reads the meter's `UnixTime`
+   register and the metric path carries `modbus_device_clock_error_seconds` — one bounded number per
+   device, and the number an operator actually wants. It used to carry the raw timestamp on *every
+   data point of every poll*, which leaked half a megabyte a minute in the OTel SDK before it was a
+   cardinality problem in a store (D51, findings #57).
+2. **The dual-timestamp story rides on spans and logs**, where it can be carried without cost: the
+   charge point stamps `energy.supply.device.timestamp` on its sag and stop spans, and the poller
+   logs the pair.
+3. **A skewed clock is not `comms-lost`.** Push the meter 5 minutes behind and every one of its
+   series reports `quality=stale` while the link is perfect and the values are seconds old. Push it
+   4 minutes ahead and everything reports `good` with timestamps in the future — the dangerous
+   direction, because nothing complains (D43).
+
+```bash
+make clock-skew SITE=rural SECONDS=240     # the meter claims it is 4 minutes in the future
+./tools/clock-inversion.sh                 # the whole demonstration: an effect before its cause
+make clock-reset SITE=rural
+```
+
+`tools/clock-inversion.sh` is worth running once: it produces a session stop that arrives **236
+seconds before** the sag that caused it, when the events are ordered by device time, and then shows
+the same two events in the right order by receive time. The write-up, including what a backend should
+do about it, is [`docs/ot-primer.md` §5.1](../ot-primer.md#51-the-clock-problem-with-a-worked-example).
+
 ## The mimic for this site
 
 Two EVSE cells on an LV board under the one-line diagram, live from M2 (state, kW, offered current,

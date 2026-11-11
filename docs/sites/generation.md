@@ -65,3 +65,21 @@ generation shapes that a single dashboard has to survive: a smooth, clipped midd
 noisy machines that disagree with each other. Both are drawn as their own one-line mimic — arrays →
 MPPT trackers → inverter → step-up → grid, and six turbines on a collector bus → step-up → grid. See
 [`docs/hmi.md`](../hmi.md).
+
+## Since #23: the diffuse/direct split, the transformer, and ride-through
+
+Three additions that make the farm's curves mean more than "it is sunny":
+
+- **`energy.pv.irradiance.diffuse` and `.direct`** (SunSpec 302 `DFI`/`DNI`). Global horizontal alone
+  cannot tell an overcast day from a broken-cloud one: the first is mostly diffuse (a tracker gets
+  little), the second is direct bursts (a tracker gets everything for a minute). Two metric names,
+  because they are two resources.
+- **`energy.pv.transformer_temperature`** (model 303 `TmpTrns`). The step-up transformer is the
+  slowest thermal time constant on a site and the thing that derates a farm on a hot still afternoon
+  — a different failure from an inverter heatsink, and it was simply not modelled before.
+- **The ride-through values** (`energy.inverter.ride_through_voltage`, `_time`, `_state`, model 129
+  subset). Not a behaviour — a value: the voltage floor the inverter must stay connected down to, and
+  for how long. This model never trips, and says so.
+
+`make sunspec-check` asserts every one of them survives encode → decode within one count of its scale
+factor, under both vendor word orders.

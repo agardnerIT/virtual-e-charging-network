@@ -498,7 +498,10 @@ async def _http_control(state: "CsmsState", csms: "Csms", port: int) -> None:
                          b"Content-Length: %d\r\nConnection: close\r\n\r\n"
                          % (status, b"OK" if status < 300 else b"ERR", len(out)) + out)
             await writer.drain()
-        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError):
+        except (asyncio.TimeoutError, asyncio.IncompleteReadError, ValueError,
+                UnicodeDecodeError):
+            # A probe, a half-open connection or a binary frame is not an error worth a log line on
+            # a control endpoint: close and move on.
             pass
         finally:
             writer.close()
