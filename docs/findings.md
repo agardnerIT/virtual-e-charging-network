@@ -314,14 +314,17 @@ code or config.
     one of them is a *footprint*. `tools/poller-soak.sh` exists so the number is quoted with its age,
     and `docs/sizing.md` now says "a *new* poller is 32 MiB" rather than "a poller is 32 MiB".
 
-59. **`docker system df -v` over-reports a volume's size, by about 2x here.** During #3's outage the
-    wind edge's queue volume measured **32 841 KiB** from `docker system df -v` and **16.8 MiB** from
-    `du -sk` inside a throwaway container mounting the same volume. Same volume, same moment: `df -v`
-    counts allocated blocks including filesystem overhead, `du` counts the files. `tools/outage-measure.sh`
-    samples the former (it is one cheap call per minute), so its `disk_kib` column is a *relative*
-    series and its absolute values are not the disk usage. The number to quote is the `du` one:
-    `docker run --rm -v <volume>:/q:ro alpine du -sk /q`. Both are recorded for the outage run, and
-    the write-up quotes the `du` figure with the method.
+59. **`docker system df -v`, `du` and `ls -l` disagree about a queue volume, and they are all right.**
+    During #3's outage the wind edge's queue measured **32 841 KiB** from `docker system df -v`,
+    **16.8 MiB** from `du -sk` inside a container with the volume mounted, and
+    `ls -l` showed a single `exporter_otlp_hub_metrics` file of **33 562 624 bytes** (32 MiB).
+    The explanation is that `file_storage` writes a **sparse** file: its apparent size is 32 MiB, its
+    allocated blocks are 16.8 MiB, and each tool reports one of the two. So `df` is not
+    "over-reporting" (which is what this entry said before the file was inspected, and why the
+    correction is here rather than in a new number): it reports apparent size, `du` reports blocks,
+    and the number that answers "will this fill the disk" is `du`. The number that answers "is the
+    queue near its limit" is neither — it is `otelcol_exporter_queue_size` against `queue_size`.
+    `tools/outage-measure.sh` samples `du`, and `docs/sizing.md` says which one each figure came from.
 
 60. **A drained queue's history is silently rejected by Prometheus' OTLP receiver.** `otelcol`'s
     export queue replays batches under their **original** timestamps, which is the right thing to do
