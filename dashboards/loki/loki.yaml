@@ -1,0 +1,53 @@
+# Loki, for the one question the repo's default stack cannot answer: "show me every OCPP frame
+# of session X" as a query rather than as a grep over a `debug` exporter.
+#
+# This is NOT part of the default stack (D10, D45). It runs under `make up STACK=logs`, and the
+# measured cost of that choice is in docs/sizing.md. Fraunhofer-style single-binary mode: no
+# object store, no schema, no compactor - the smallest thing that answers the question and can
+# still be measured honestly.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # 6 hours, matching Prometheus' retention in this stack. A proof of life, not a historian
+  # (D3): the interesting question is "the session I just ran", not "last quarter".
+  retention_period: 6h
+  # A metric-cadence ingest would be a mistake; this is a log store for one signal.
+  ingestion_rate_mb: 4
+  ingestion_burst_size_mb: 8
+  allow_structured_metadata: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
+
+analytics:
+  reporting_enabled: false

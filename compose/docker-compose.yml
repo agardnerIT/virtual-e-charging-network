@@ -68,6 +68,7 @@ volumes:
   edge-metro-queue: {}
   edge-microgrid-queue: {}
   prometheus-data: {}
+  loki-data: {}
 
 services:
 
@@ -173,6 +174,23 @@ services:
     ports:
       - "127.0.0.1:${HMI_PORT:-8091}:80"   # this is the proof of life: `make up` ends here
     depends_on: [prometheus]
+    networks: [noc]
+
+  # Optional log store (D45). Nothing in the default stack depends on it: `make up` does not
+  # start it and the hub does not export to it. Started on request so the cost of the choice can
+  # be measured rather than argued about:
+  #   docker compose -f compose/docker-compose.yml --profile loki up -d loki
+  # The hub-side recipe (exporter + pipeline) is a comment in collector/hub/hub.yaml.
+  loki:
+    profiles: [loki]
+    image: grafana/loki:3.3.2
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ../dashboards/loki/loki.yaml:/etc/loki/loki.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "127.0.0.1:3100:3100"   # loopback only, like the other UIs
     networks: [noc]
 
   # Optional, and nothing depends on it (plan.md D24). Deliberately not started by

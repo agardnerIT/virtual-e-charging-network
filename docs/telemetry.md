@@ -361,7 +361,7 @@ The charge point's copies carry the session's `trace_id`, so a log line and a sp
 event. The CSMS's copies cannot carry a traceparent (OCPP 1.6 has nowhere to put one) and are joined
 by `ocpp.transaction.id` instead — `docs/standards.md` §6.
 
-Where they go: **nowhere persistent, by design.** The hub's `logs` pipeline ends in the `debug`
+Where they go: **nowhere persistent, by design** (D45). The hub's `logs` pipeline ends in the `debug`
 exporter, and neither Prometheus nor Jaeger is a log store. Read them with:
 
 ```bash
@@ -371,7 +371,21 @@ make csms-logs     # the CSMS's view of the same conversation
 ```
 
 This is the one gap a new user hits immediately, so it is stated in `docs/sizing.md` and §9 below
-rather than hidden. Adding Loki is a hub exporter line, not an architecture change (§7).
+rather than hidden.
+
+**If you want a log store**, it is one profile and three lines, and it was measured rather than
+argued about: `docker compose -f compose/docker-compose.yml --profile loki up -d loki`, then add
+the `otlphttp/loki` exporter and a `logs/record` pipeline on the hub — the exact YAML is a comment
+in [`collector/hub/hub.yaml`](../collector/hub/hub.yaml), and the verified query is
+
+```
+{service_name="vecn-ocpp-cp"} | json | ocpp_transaction_id="42"
+```
+
+Loki costs **~50 MiB** on this stack with real OCPP traffic (`docs/sizing.md` §"Loki, measured"),
+which is why the reason it is not the default is *scope* — one signal does not deserve a second
+query language in a teaching stack — and not footprint. The CSMS's copies are the only frames a
+log store adds that the trace cannot give you.
 
 ---
 

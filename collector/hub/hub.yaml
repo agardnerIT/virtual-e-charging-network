@@ -123,6 +123,35 @@ exporters:
     sending_queue:
       enabled: false
 
+
+  # ---------------------------------------------------------------------------------
+  # To Loki, if you want a log store (D45). NOT enabled here on purpose: an exporter defined
+  # but pointed at a host that is not running retries forever and fills this collector's log
+  # with exactly the noise the default stack is trying not to produce.
+  #
+  #   1. `docker compose -f compose/docker-compose.yml --profile loki up -d loki`
+  #      (config: dashboards/loki/loki.yaml, single binary, 6 h retention)
+  #   2. add the exporter:
+  #
+  #      exporters:
+  #        otlphttp/loki:
+  #          endpoint: "http://loki:3100/otlp"
+  #          tls: { insecure: true }
+  #          retry_on_failure: { enabled: true, initial_interval: 1s, max_interval: 10s }
+  #
+  #   3. and a pipeline that uses it, leaving the `logs` pipeline (debug) alone:
+  #
+  #      service:
+  #        pipelines:
+  #          logs/record: { receivers: [otlp], processors: [batch], exporters: [otlphttp/loki] }
+  #
+  #   4. query the frame you care about:
+  #
+  #      {service_name="vecn-ocpp-cp"} | json | ocpp_transaction_id="42"
+  #
+  # Measured cost of that choice: docs/sizing.md §"Loki, measured". The decision: D45.
+  # ---------------------------------------------------------------------------------
+
 service:
   telemetry:
     logs:
@@ -153,8 +182,8 @@ service:
       processors: [transform/visual, filter/visual_phases, batch]
       exporters: [otlphttp/metrics]
     logs:
-      # No log store in the chosen visual stack yet - neither candidate ships one without
-      # adding Loki, which is not in the D10 budget by default. Flagged in docs/sizing.md.
+      # No log store in the default stack (D45). The measured cost of one, and the three-line
+      # recipe to add it, are below this file's `extensions:` block.
       receivers: [otlp]
       processors: [batch]
       exporters: [debug]

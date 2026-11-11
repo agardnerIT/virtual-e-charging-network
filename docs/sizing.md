@@ -195,6 +195,43 @@ holding a register array; the three pollers are within 5 MiB because they are th
 with a different register map. That is D10's "one image, sites differ by configuration"
 showing up as a number.
 
+## Loki, measured — the log store this stack does not ship (D45)
+
+The default stack has no log store. That is a decision, and the usual justification for one —
+footprint — does not survive measurement, so it is not the justification.
+
+Measured on the running five-site stack (`docker stats`, single binary, filesystem storage,
+6 h retention, config in `dashboards/loki/loki.yaml`):
+
+| What | `docker stats` |
+|---|---|
+| Loki, started but idle | 30.3 MiB |
+| Loki after 2 000 synthetic OCPP entries (a single stream) | 38.9 MiB |
+| Loki receiving the hub's real OCPP log traffic from all five sites | **52.5 MiB** |
+
+So a log store costs about **50 MiB** — 5 % of the stack, well inside D10's ~2 GB headroom.
+"Too expensive" would have been a false reason, and this section exists because it would have
+been the easy one to write.
+
+The recipe was also exercised end to end, not just documented: `--profile loki` for the
+container, an `otlphttp/loki` exporter plus a `logs/record` pipeline on the hub, and then
+
+```
+{service_name="vecn-ocpp-cp"} | json | ocpp_transaction_id="42"
+```
+
+returned the charge point's own frames for one transaction. (Both service names — `vecn-ocpp-cp`
+and `vecn-ocpp-csms` — appeared in Loki's label index, which is how the path was confirmed.)
+
+The decision (D45) is therefore about **scope, not cost**: this repo's argument is that the data
+belongs in metrics and traces, the charge point's OCPP frames are already trace-correlated, and
+the only thing a log store adds is full-text frame search and the CSMS's side of the conversation
+(which carries no `trace_id`). That is worth 50 MiB to someone and not worth a second query
+language, retention policy and backup story in a teaching stack by default. Both halves are
+stated in `docs/telemetry.md` §5 and the option is one profile away.
+
+---
+
 ## The visual stack: chosen on measured RAM, not preference (D24)
 
 `make up` ends in a picture, not in log output (plan.md §7), so a local visual stack is part of
