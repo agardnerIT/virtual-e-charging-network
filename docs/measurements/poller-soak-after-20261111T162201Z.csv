@@ -1,0 +1,6 @@
+utc,epoch_elapsed_s,container,docker_stats_mib,vmrss_mib
+2026-11-11T16:22:06Z,0,poller-rural,30.16,44.57
+2026-11-11T16:22:06Z,0,poller-solar,30.27,44.70
+2026-11-11T16:22:06Z,0,poller-microgrid,30.16,44.59
+2026-11-11T16:22:06Z,0,ocpp-cp,35,49.35
+2026-11-11T16:22:06Z,0,csms,33.11,47.08

@@ -51,9 +51,17 @@ STACK ?= full
 
 # The services the OT story needs, listed rather than inferred: a new site must be added here
 # or it is silently missing from the debug stack.
-OT_SERVICES = toxiproxy device-rural poller-rural device-solar poller-solar device-wind \
-	poller-wind device-metro poller-metro device-microgrid poller-microgrid \
-	edge-rural edge-solar edge-wind edge-metro edge-microgrid csms ocpp-cp hub ops
+# Everything that is not the visual layer: the five collector layers' neighbours, every site's
+# device and poller, every charge point and CSMS, the market feed, and the hub. Listed rather than
+# inferred, because "collectors only" that quietly omits a site is worse than no debug stack.
+OT_SERVICES = toxiproxy ops hub \
+	device-rural poller-rural edge-rural csms ocpp-cp \
+	device-solar poller-solar edge-solar \
+	device-wind poller-wind edge-wind \
+	device-metro poller-metro edge-metro csms-metro ocpp-cp-metro \
+	device-microgrid poller-microgrid edge-microgrid \
+	device-highway poller-highway edge-highway csms-highway ocpp-cp-highway \
+	market
 
 up:
 ifeq ($(STACK),debug)
