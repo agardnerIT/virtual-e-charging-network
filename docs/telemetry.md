@@ -201,6 +201,23 @@ session-scoped SLO instruments (§3.7):
 `energy.session.*` is OCPP-side state, not a device register: the charge point emits it directly.
 `ocpp_transactions_active_ratio` and `ocpp_transactions_total_ratio` come from the CSMS.
 
+**The market (M4, #22)** — two series, and the only signal here that is not a measurement of
+anything physical:
+
+| Metric (Prometheus) | Unit | Split by | What it is |
+|---|---|---|---|
+| `energy_market_price_AUD_per_MW_h` | AUD/MWh | `energy_market_region` | NEM-style spot price, **recorded and replayed** in phase with the time of day. Not a live feed, not a market model. |
+| `energy_market_price_feed_age_seconds` | s | region | How old the replayed price is against the wall clock. A recorded feed is not a live one, and this is the number that says so (~27 days, because the recording is fixed). |
+
+The point is not the price: it is that a **cost is derivable from telemetry**. The HMI does exactly
+that on the site page — session energy delivered × the spot price — and labels the price as
+recorded in the same breath:
+
+```
+sum(energy_session_energy_kW_h{energy_site_id="rural-brokenhill"}) * on() group_left()
+  max(energy_market_price_AUD_per_MW_h) / 1000
+```
+
 **The island (`microgrid-kangaroo-island`)** — busbar, battery, sources, load. 27 series:
 
 | Metric (Prometheus) | Unit | Split by | What it is |

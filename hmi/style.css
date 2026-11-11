@@ -438,3 +438,12 @@ body {
   cursor: pointer;
 }
 .alarms button.ack:hover { background: var(--rule, #c9c5bb); }
+
+/* The derived cost line (M4, #22). Quiet on purpose: it is arithmetic over two telemetry signals,
+   and it says "recorded" in the same breath as the number. */
+.site-cost {
+  margin: 4px 0 0;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-soft, #6b665c);
+  font-size: 0.86rem;
+}

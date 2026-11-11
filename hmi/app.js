@@ -145,6 +145,10 @@ const POINTS = {
   energy_windfarm_curtailment_ratio:    { slot: 'curtailment',    unit: '',     label: 'Curtailment',      decimals: 0, otel: 'energy.windfarm.curtailment', text: 'energy_windfarm_curtailment_text' },
   energy_windfarm_fault_code_ratio:     { slot: 'fault_code',     unit: '',     label: 'Farm fault code',  decimals: 0, otel: 'energy.windfarm.fault_code' },
 
+  // --- the market (M4, #22): a recorded price, replayed. Not a device measurement. ---
+  energy_market_price_AUD_per_MW_h:        { slot: 'price',        unit: 'AUD/MWh', label: 'Spot price',   decimals: 2, otel: 'energy.market.price' },
+  energy_market_price_feed_age_seconds:    { slot: 'price_age',    unit: 's',       label: 'Price feed age', decimals: 0, otel: 'energy.market.price.feed_age' },
+
   // --- isolated microgrid (M3-2, the fifth site) ---
   // Frequency first: on this site it is the primary signal, not voltage. A grid-forming
   // inverter holds the busbar at 230 V; nothing holds it at 50.00 Hz.
@@ -303,7 +307,7 @@ async function refresh() {
       // Every site the pipeline has seen, whether or not it has instrumented points yet.
       pq('target_info{energy_site_id!=""}'),
       // Everything instrumented, every site, in one query.
-      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session|microgrid|bess)_.*",energy_site_id!=""}'),
+      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session|microgrid|bess|market)_.*",energy_site_id!=""}'),
     ]);
     state.error = null;
   } catch (e) {
@@ -1314,6 +1318,26 @@ function renderAlarms(site) {
   }
 }
 
+/* The one number on this page that is not a measurement: a cost, derived from two telemetry
+   signals. Energy delivered in live sessions x the recorded spot price. It exists because it is
+   the question every reader asks next ("so what does that cost?"), and because a cost that is
+   *derived* from the pipeline is a different thing from a cost a demo script prints.
+   It says "recorded" out loud, because a price with a 27-day-old timestamp is not a live one. */
+function renderCost(site) {
+  const el = document.getElementById('site-cost');
+  if (!el) return;
+  const pricePoint = [...state.points.values()].find((p) => p.def.slot === 'price');
+  if (!pricePoint) { el.textContent = ''; return; }
+  const energy = pointsFor(site.id)
+    .filter((p) => p.def.slot === 'session_energy')
+    .reduce((sum, p) => sum + (p.value || 0), 0);
+  const aud = (energy * pricePoint.value) / 1000;
+  const region = pricePoint.labels.energy_market_region || 'spot';
+  el.textContent = energy > 0
+    ? `${region} $${fmt(pricePoint.value, 2)}/MWh (recorded) \u00b7 ${fmt(energy, 2)} kWh in live sessions \u2248 $${fmt(aud, 2)}`
+    : `${region} $${fmt(pricePoint.value, 2)}/MWh (recorded) \u00b7 no energy in live sessions, so no cost to derive`;
+}
+
 function renderPoints(site) {
   const pts = pointsFor(site.id);
   const body = document.getElementById('points');
@@ -1453,6 +1477,7 @@ function render() {
     if (!site) { state.selected = null; render(); return; }
     renderMimic(site);
     renderAlarms(site);
+    renderCost(site);
     renderPoints(site);
     renderTrend(site);
   }

@@ -321,6 +321,28 @@ services:
     # `make spine` exec in, exactly like `make fault` does for the device.
     networks: [ot-rural]
 
+  # ---- the market: a recorded price feed, not a device (M4, #22) -------------------
+  # The one signal in this stack that is not a measurement of anything physical. It replays
+  # docs/measurements/market-prices-nsw1.csv (288 five-minute intervals, with a midday negative
+  # price) in phase with the wall clock, and emits to the rural site's edge collector so that a
+  # price arrives with the same site identity the cost query joins on.
+  #
+  # Deliberately offline: no API key, no network dependency, and `make up` works on a plane.
+  # docs/standards.md §5 says a market price is not a device measurement and must not be dressed
+  # as one; `energy.market.price.feed_age` is the metric that tells you it is a recording.
+  market:
+    <<: *sim
+    command: ["python", "market/feed.py"]
+    environment:
+      MARKET_REGION: "NSW1"
+      MARKET_PRICE_FILE: "/app/market-prices-nsw1.csv"
+      OTLP_ENDPOINT: "http://edge-rural:4318"
+      OTEL_METRIC_EXPORT_INTERVAL_MS: "5000"
+    volumes:
+      - ../docs/measurements/market-prices-nsw1.csv:/app/market-prices-nsw1.csv:ro
+    depends_on: [edge-rural]
+    networks: [ot-rural]
+
   # ---- solar farm: utility-scale generation (OT zone) ----------------------------
   edge-solar:
     <<: *collector

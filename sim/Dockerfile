@@ -21,3 +21,6 @@ COPY sunspec.py ./
 COPY site/ ./site/
 COPY poller/ ./poller/
 COPY ocpp/ ./ocpp/
+# The market feed is an *application*, not a device (M4, #22): it replays a recorded price file
+# and emits semantic names directly, like the charge point does. Same image, fourth role.
+COPY market/ ./market/

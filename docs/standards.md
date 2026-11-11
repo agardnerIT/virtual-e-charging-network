@@ -290,6 +290,12 @@ to notice.
 - OCPP conformance of any kind — §6 lists what is implemented and what is not.
 - A **power-flow model**. Site meters, inverters and charge points each simulate their own load or
 generation; the meter does not sum the chargers, and no node balances (§6, findings #42).
+- **A market simulation.** `energy.market.price` is a **recording replayed**, not a market model
+  and not a live feed: `docs/measurements/market-prices-nsw1.csv` is a representative day (overnight
+  trough, morning and evening peaks, a midday negative-price strip), and
+  `energy.market.price.feed_age` exists precisely so a reader can see how old it is (about a month,
+  since the recording is fixed). It is stamped with a site identity because the cost query joins on
+  it, and that is the only sense in which it is "at" a site.
 - **Protection, fault level or fault current** anywhere in the stack. Not at the microgrid
   (§4) and not at the rural site either: the "sag" is a multiplier on a voltage sample, not a
   network fault, and no protection relay is modelled.
