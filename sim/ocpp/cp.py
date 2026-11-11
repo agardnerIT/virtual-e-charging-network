@@ -827,8 +827,12 @@ class ChargePoint:
                     offered = self.vehicle_max_a * _clamp(
                         (pu - DERATE_ZERO_PU) / (DERATE_FULL_PU - DERATE_ZERO_PU))
                     # Load management (M4, #12): the site cap is shared equally between the bays
-                    # that are actually charging, and it can only ever lower the offer.
-                    active_bays = sum(1 for e in self.evses if e.busy)
+                    # that are actually charging, and it can only ever lower the offer. "Charging"
+                    # rather than "busy": a bay in its idle gap or finishing still counts as busy,
+                    # and dividing the cap by bays that are drawing nothing understates every
+                    # other bay's share — measured: four live bays sharing 144.9 A got 29 A each
+                    # (a fifth of the cap) instead of their 32 A ask.
+                    active_bays = sum(1 for e in self.evses if e.sample.state == "Charging")
                     uncapped = offered
                     offered = self.profiles.share_for(active_bays, offered)
                     sample.throttled_by = (

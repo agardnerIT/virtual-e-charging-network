@@ -311,7 +311,7 @@ async function refresh() {
       // Every site the pipeline has seen, whether or not it has instrumented points yet.
       pq('target_info{energy_site_id!=""}'),
       // Everything instrumented, every site, in one query.
-      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session|microgrid|bess|market)_.*",energy_site_id!=""}'),
+      pq('{__name__=~"energy_(meter|inverter|pv|turbine|windfarm|evse|session|microgrid|bess|market|site)_.*",energy_site_id!=""}'),
     ]);
     state.error = null;
   } catch (e) {
@@ -799,6 +799,29 @@ function renderMimic(site) {
     // Left of the instrument panel: right-anchored, this line lands on top of it.
     parts.push(`<text class="note" x="320" y="${boardY - 16}">` +
       `${bays.length} bay${bays.length === 1 ? '' : 's'} \u00b7 OCPP 1.6J</text>`);
+    // A site with a capacity cap gets a bar, because load management is a ratio and a ratio wants
+    // drawing. Only sites that actually publish a cap have one: `energy.site.capacity.current` is
+    // absent when no OCPP ChargePointMaxProfile is set, and the page does not invent a bar for a
+    // site that has no cap (M4, #12).
+    const capA = bound(site.id, 'site_cap', null);
+    const loadW = bound(site.id, 'site_load', null);
+    if (capA) {
+      const capKw = capA.value * 0.69;          // 230 V L-N x 3 phases / 1000
+      const loadKw = loadW ? loadW.value / 1000 : 0;
+      const frac = Math.max(0, Math.min(1, capKw ? loadKw / capKw : 0));
+      // Under the bay board, left of the legend: the top-left of this drawing is the electrical
+      // spine and the meter panel, and a bar laid over those is a bar nobody can read (it was, once).
+      const rows = Math.max(1, Math.ceil(Math.min(bays.length, MAX_BAYS) / COLS));
+      const barX = left, barY = boardY + 26 + rows * (cellH + 8) + 34, barW = 300, barH = 14;
+      const q = capA ? pointState(capA) : 'unknown';
+      parts.push(`<text class="tag" x="${barX}" y="${barY - 8}">SITE CAPACITY ${fmt(capKw, 0)} kW ` +
+        `<tspan class="note">(OCPP ChargePointMaxProfile, ${fmt(capA.value, 1)} A)</tspan></text>`);
+      parts.push(`<rect class="cap-track" x="${barX}" y="${barY}" width="${barW}" height="${barH}"/>`);
+      parts.push(`<rect class="cap-fill q-${q}" x="${barX}" y="${barY}" width="${(barW * frac).toFixed(1)}" height="${barH}"/>`);
+      parts.push(`<text class="bay-small" x="${barX + barW + 12}" y="${barY + 11}">` +
+        `${fmt(loadKw, 1)} kW \u00b7 ${fmt(frac * 100, 0)} % of cap</text>`);
+    }
+
     // The column legend is a caption under the board, once, instead of in every cell: a bay
     // cell has 126 units of width and the sag story needs the offered current to fit in it.
     parts.push(`<text class="note" x="${left}" y="${boardY + 26 + Math.ceil(Math.min(bays.length, MAX_BAYS) / COLS) * (cellH + 8)}">` +

@@ -63,3 +63,19 @@ Grafana OSS 276 MiB (plan.md D24). RAM did not decide it — all three fit the b
 nor Grafana draws an SVG one-line diagram with live values *in place*, which is the deliverable.
 Perses is kept as the `perses` compose profile for a trends view; nothing depends on it, and the
 `make up STACK=perses` flag the plan mentions is not wired into the Makefile yet.
+
+## The capacity bar (M4, #12)
+
+A site whose charge point has an OCPP `ChargePointMaxProfile` gets a bar under its bay board: a
+track, a fill, and `kW · % of cap`, labelled with the profile it came from. Two rules:
+
+- **Only for a site that publishes a cap.** `energy.site.capacity.current` is absent when no profile
+  is set, and the page does not draw a bar for a site that has none — the same rule as a dashed
+  asset, inverted.
+- **The fill is the bays' own load**, from `energy.site.load.power`, not a number computed from the
+  offers. Load management is a ratio between two measured quantities, and a ratio drawn from
+  anything else is a diagram of an intention.
+
+On the highway site with six bays charging and a 100 kW cap, the bar sits at ~98 %: the six bays are
+offered 24.2 A each (144.9 / 6), delivering 16.4 kW each. Clear the cap and the bars go away and the
+offers return to 32 A — which is the whole point of it being a control rather than a setting.

@@ -447,3 +447,12 @@ body {
   color: var(--ink-soft, #6b665c);
   font-size: 0.86rem;
 }
+
+/* The site capacity bar (M4, #12). A ratio, drawn: how much of the site's OCPP cap the bays are
+   using. Only rendered for a site that publishes a cap. */
+.cap-track { fill: none; stroke: var(--rule, #c9c5bb); stroke-width: 1; }
+.cap-fill  { stroke: none; }
+.cap-fill.q-good  { fill: #2f6f4f; }
+.cap-fill.q-stale { fill: #b07a2f; }
+.cap-fill.q-bad,
+.cap-fill.q-comms-lost { fill: #a04a4a; }
